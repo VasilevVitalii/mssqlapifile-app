@@ -5,25 +5,35 @@ import * as metronom from 'vv-metronom'
 
 type TLoggerStateMessage = 'wait' | 'done'
 
-type TLoggerMessage = {stateLog: TLoggerStateMessage, stateMssql: TLoggerStateMessage, subsystem: string, text: string, type: 'trace' | 'debug' | 'error' | 'digest'}
+type TLoggerDigest = {
+    countSuccess: number,
+    countError: number
+}
+
+type TLoggerMessage = {
+    stateLog: TLoggerStateMessage,
+    stateMssql: TLoggerStateMessage,
+    subsystem: string,
+    text: string,
+    type: 'trace' | 'debug' | 'error' | 'digest',
+    digest?: TLoggerDigest
+}
 
 export class Logger {
     private _loggerManager = undefined as ILoggerManager
     private _logger = undefined as ILogger
-    private _logDir = undefined as string
+    private _logPath = undefined as string
     private _loglifeDays = undefined as number
     private _allowTrace = undefined as boolean
-    private _queryLoadErrors = undefined as string
-    private _queryLoadDigest = undefined as string
-    private _prevLogDir = undefined as string
+    private _prevLogPath = undefined as string
     private _prevLoglifeDays = undefined as number
     private _prevAllowTrace = undefined as boolean
     private _canWork = false
     private _list = [] as TLoggerMessage[]
-    private _digest = {
-        countSuccess: 0,
-        countError: 0
-    }
+    private _digest = {countSuccess: 0, countError: 0} as TLoggerDigest
+
+    queryLoadErrors = undefined as string
+    queryLoadDigest = undefined as string
 
     constructor() {
         this._loggerManager = LoggerManagerCreate()
@@ -55,21 +65,30 @@ export class Logger {
 
         const metronomDigest = metronom.Create({
             kind: 'cron',
-            cron: '0 */2 * * * *'
+            cron: '0 */10 * * * *'
         })
         metronomDigest.onTick(() => {
-            const countSuccess = this._digest.countSuccess
-            const countError = this._digest.countError
+            const digest = {
+                countSuccess: this._digest.countSuccess,
+                countError: this._digest.countError
+            } as TLoggerDigest
             this._digest.countSuccess = 0
             this._digest.countError = 0
-            this._list.push({subsystem: 'log', text: `digest for last 30 minutes: success load ${countSuccess} file(s), error load ${countError} file(s)`, type: 'digest', stateLog: 'wait', stateMssql: 'wait'})
+            this._list.push({
+                subsystem: 'log',
+                text: `digest for last 30 minutes: success load ${digest.countSuccess} file(s), error load ${digest.countError} file(s)`,
+                type: 'digest',
+                stateLog: 'wait',
+                stateMssql: 'wait',
+                digest: digest
+            })
         })
         metronomDigest.start()
     }
 
-    setLogDir(logDir: string) {
-        this._prevLogDir = this._logDir
-        this._logDir = logDir
+    setLogPath(logPath: string) {
+        this._prevLogPath = this._logPath
+        this._logPath = logPath
     }
 
     setLoglifeDays(loglifeDays: number) {
@@ -82,14 +101,6 @@ export class Logger {
         this._allowTrace = allowTrace
     }
 
-    setQueryLoadErrors(queryLoadErrors: string) {
-        this._queryLoadErrors = queryLoadErrors
-    }
-
-    setQueryLoadDigest(queryLoadDigest: string) {
-        this._queryLoadDigest = queryLoadDigest
-    }
-
     addToDigestSuccess() {
         this._digest.countSuccess++
     }
@@ -100,8 +111,8 @@ export class Logger {
 
     init() {
         let need = false
-        if (this._prevLogDir !== this._logDir) {
-            this._prevLogDir = this._logDir
+        if (this._prevLogPath !== this._logPath) {
+            this._prevLogPath = this._logPath
             need = true
         }
         if (this._prevLoglifeDays !== this._loglifeDays) {
@@ -117,9 +128,9 @@ export class Logger {
             this._logger = this._loggerManager.addLogger ({
                 consoleLevel: this._allowTrace ? 'trace' : 'debug',
                 transports: [
-                    {kind: 'file', dir: this._logDir, levels: ['error'], fileNamePrefix: 'error', fileLifeDay: this._loglifeDays},
-                    {kind: 'file', dir: this._logDir, levels: ['debug', 'error'], fileNamePrefix: 'debug', fileLifeDay: this._loglifeDays},
-                    this._allowTrace ? {kind: 'file', dir: this._logDir, levels: ['trace', 'debug', 'error'], fileNamePrefix: 'trace', fileLifeDay: this._loglifeDays} : undefined,
+                    {kind: 'file', dir: this._logPath, levels: ['error'], fileNamePrefix: 'error', fileLifeDay: this._loglifeDays},
+                    {kind: 'file', dir: this._logPath, levels: ['debug', 'error'], fileNamePrefix: 'debug', fileLifeDay: this._loglifeDays},
+                    this._allowTrace ? {kind: 'file', dir: this._logPath, levels: ['trace', 'debug', 'error'], fileNamePrefix: 'trace', fileLifeDay: this._loglifeDays} : undefined,
                 ]
             })
             this._canWork = true
@@ -160,7 +171,7 @@ export class Logger {
 
         const query = [] as string[]
         const list = this._list.filter(f => f.stateMssql === 'wait' && f.type === 'error').slice(0, 100)
-        if (vv.isEmpty(this._queryLoadErrors)) {
+        if (vv.isEmpty(this.queryLoadErrors)) {
             list.forEach(item => item.stateMssql = 'done')
             return 0
         }
@@ -175,7 +186,7 @@ export class Logger {
             "IF OBJECT_ID('tempdb..#mssqlapifile_app_errors') IS NOT NULL DROP TABLE #mssqlapifile_app_errors",
             "CREATE TABLE #mssqlapifile_app_errors([id] INT NOT NULL IDENTITY(1,1), [error] VARCHAR(MAX))",
             "INSERT INTO #mssqlapifile_app_errors([error])",
-        ].join(`\n`) + `\n` + query.join(` UNION ALL\n`) + `\n` + this._queryLoadErrors
+        ].join(`\n`) + `\n` + query.join(` UNION ALL\n`) + `\n` + this.queryLoadErrors
         const execResult = await appMssql.exec(queryText)
         if (execResult.state === 'no') return 0
 
@@ -195,22 +206,22 @@ export class Logger {
 
         const query = [] as string[]
         const list = this._list.filter(f => f.stateMssql === 'wait' && f.type === 'digest')
-        if (vv.isEmpty(this._queryLoadDigest)) {
+        if (vv.isEmpty(this.queryLoadDigest)) {
             list.forEach(item => item.stateMssql = 'done')
             return
         }
 
         list.forEach(item => {
             const queryDigestText = item.text.replaceAll(`'`, `''`)
-            query.push(`SELECT '${queryDigestText}' [message]`)
+            query.push(`SELECT '${queryDigestText}' [message], ${item.digest?.countSuccess || 0} [countSuccess], ${item.digest?.countError} [countError]`)
         })
         if (query.length <= 0) return 0
 
         const queryText = [
             "IF OBJECT_ID('tempdb..#mssqlapifile_app_digest') IS NOT NULL DROP TABLE #mssqlapifile_app_digest",
-            "CREATE TABLE #mssqlapifile_app_digest([id] INT NOT NULL IDENTITY(1,1), [message] VARCHAR(MAX))",
-            "INSERT INTO #mssqlapifile_app_digest([message])",
-        ].join(`\n`) + `\n` + query.join(` UNION ALL\n`) + `\n` + this._queryLoadDigest
+            "CREATE TABLE #mssqlapifile_app_digest([id] INT NOT NULL IDENTITY(1,1), [message] VARCHAR(MAX), [countSuccess] INT, [countError] INT)",
+            "INSERT INTO #mssqlapifile_app_digest([message], [countSuccess], [countError])",
+        ].join(`\n`) + `\n` + query.join(` UNION ALL\n`) + `\n` + this.queryLoadDigest
         const execResult = await appMssql.exec(queryText)
         if (execResult.state === 'no') return 0
 

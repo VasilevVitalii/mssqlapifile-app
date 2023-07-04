@@ -24,6 +24,7 @@ export type TOptions = {
             instance: string,
             login: string,
             password: string,
+            database: string,
         },
         maxThreads: number,
         holdSec: number,
@@ -39,7 +40,7 @@ export type TOptions = {
         logErrorPathDefault: string
     },
     service: {
-        pause: boolean
+        hold: boolean
     }
 }
 
@@ -48,6 +49,7 @@ const OPTIONS_LOG_LIFEDAYS = 10
 const OPTIONS_MSSQL_CONNECTION_INSTANCE = 'localhost,1433'
 const OPTIONS_MSSQL_CONNECTION_LOGIN = 'sa'
 const OPTIONS_MSSQL_CONNECTION_PASSWORD = '123456'
+const OPTIONS_MSSQL_CONNECTION_DATABASE = 'tempdb'
 const OPTIONS_MSSQL_MAXTHREADS = 8
 const OPTIONS_MSSQL_HOLDSEC = 30
 const OPTIONS_MSSQL_QUERYLOADERRORS = [
@@ -55,8 +57,8 @@ const OPTIONS_MSSQL_QUERYLOADERRORS = [
     "SELECT [error] FROM #mssqlapifile_app_errors ORDER BY [id]"
 ]
 const OPTIONS_MSSQL_QUERYLOADDIGEST = [
-    "INSERT INTO [dbo].[YourDigestStorage] ([message])",
-    "SELECT [message] FROM #mssqlapifile_app_digest ORDER BY [id]"
+    "INSERT INTO [dbo].[YourDigestStorage] ([message],[countSuccess],[countError])",
+    "SELECT [message],[countSuccess],[countError] FROM #mssqlapifile_app_digest ORDER BY [id]"
 ]
 const OPTIONS_MSSQL_QUERYLOADDEFAULT = [
     "INSERT INTO [dbo].[YourFileStorage] ([data])",
@@ -77,7 +79,7 @@ const OPTIONS_SOURCE_LOGSUCCESSLIFEDAYS = 30
 const OPTIONS_SOURCE_LOGERRORLIFEDAYS = 30
 const OPTIONS_SOURCE_LOGSUCCESSPATHDEFAULT = path.join('scan', 'success')
 const OPTIONS_SOURCE_LOGERRORPATHDEFAULT = path.join('scan', 'error')
-const OPTIONS_SERVICE_PAUSE = false
+const OPTIONS_SERVICE_HOLD = false
 
 export function OptionsDefault(): TOptions {
     return {
@@ -90,6 +92,7 @@ export function OptionsDefault(): TOptions {
                 instance: OPTIONS_MSSQL_CONNECTION_INSTANCE,
                 login: OPTIONS_MSSQL_CONNECTION_LOGIN,
                 password: OPTIONS_MSSQL_CONNECTION_PASSWORD,
+                database: OPTIONS_MSSQL_CONNECTION_DATABASE,
             },
             maxThreads: OPTIONS_MSSQL_MAXTHREADS,
             holdSec: OPTIONS_MSSQL_HOLDSEC,
@@ -120,7 +123,7 @@ export function OptionsDefault(): TOptions {
             logErrorPathDefault: OPTIONS_SOURCE_LOGERRORPATHDEFAULT
         },
         service: {
-            pause: OPTIONS_SERVICE_PAUSE
+            hold: OPTIONS_SERVICE_HOLD
         }
     }
 }
@@ -191,6 +194,7 @@ export class Options {
                     instance: vv.toString(dataJson?.mssql?.connection?.instance),
                     login: vv.toString(dataJson?.mssql?.connection?.login),
                     password: vv.toString(dataJson?.mssql?.connection?.password),
+                    database: vv.toString(dataJson?.mssql?.connection?.database),
                 },
                 maxThreads: vv.toIntPositive (dataJson?.mssql?.maxThreads),
                 holdSec: vv.toIntPositive (dataJson?.mssql?.holdSec),
@@ -206,7 +210,7 @@ export class Options {
                 logSuccessPathDefault: vv.toString(dataJson?.source?.logSuccessPathDefault)
             },
             service: {
-                pause: vv.toBool(dataJson?.service?.pause)
+                hold: vv.toBool(dataJson?.service?.hold)
             }
         }
 
@@ -229,6 +233,10 @@ export class Options {
         if (vv.isEmpty(opt.mssql.connection.password)) {
             opt.mssql.connection.password = OPTIONS_MSSQL_CONNECTION_PASSWORD
             appLogger.debug('opt', `change and save param mssql.connection.password = "${OPTIONS_MSSQL_CONNECTION_PASSWORD}"`)
+        }
+        if (vv.isEmpty(opt.mssql.connection.database)) {
+            opt.mssql.connection.database = OPTIONS_MSSQL_CONNECTION_DATABASE
+            appLogger.debug('opt', `change and save param mssql.connection.database = "${OPTIONS_MSSQL_CONNECTION_DATABASE}"`)
         }
         if (opt.mssql.maxThreads === undefined || opt.mssql.maxThreads < 0) {
             opt.mssql.maxThreads = OPTIONS_MSSQL_MAXTHREADS
@@ -302,9 +310,9 @@ export class Options {
                 appLogger.debug('opt', `change and save param scan.queryLoad(#${itemIdx + 1}) - <see in file>`)
             }
         })
-        if (opt.service.pause === undefined) {
-            opt.service.pause = OPTIONS_SERVICE_PAUSE
-            appLogger.debug('opt', `change and save param service.pause = "${OPTIONS_SERVICE_PAUSE}"`)
+        if (opt.service.hold === undefined) {
+            opt.service.hold = OPTIONS_SERVICE_HOLD
+            appLogger.debug('opt', `change and save param service.hold = "${OPTIONS_SERVICE_HOLD}"`)
         }
 
         if (JSON.stringify(opt, null, 4) !== dataRaw) {

@@ -10,7 +10,7 @@ type TLoader = {
     file: string,
     stat: fs.Stats,
     countScan: number,
-    state: 'wait' | 'process' | 'success' | 'error' | 'hold' | 'delete',
+    state: 'wait' | 'process' | 'success' | 'error' | 'delete' | 'hold' | 'done',
     successPath: string,
     errorPath: string,
     queryLoad: string,
@@ -26,7 +26,7 @@ export class Loader {
     holdSec = undefined as number
     queryLoadDefault = undefined as string
 
-    private _list = [] as TLoader[]
+    list = [] as TLoader[]
 
     constructor() {
         const self = this
@@ -43,11 +43,11 @@ export class Loader {
                 timerLoad = setTimeout(tick, 1000)
                 return
             }
-            let countThreads = self._list.filter(f => f.state === 'process').length
+            let countThreads = self.list.filter(f => f.state === 'process').length
             const countFreeThreads = self.maxThreads - countThreads
             if (countFreeThreads > 0) {
                 await self._onLoad(countFreeThreads)
-                countThreads = self._list.filter(f => f.state === 'process').length
+                countThreads = self.list.filter(f => f.state === 'process').length
             }
             const timeout = self._stateReadyForLoad.length > 0 ? (countThreads < self.maxThreads ? 0 : 500) : 5000
             timerLoad = setTimeout(tick, timeout)
@@ -55,7 +55,7 @@ export class Loader {
 
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         let timerUnhold = setTimeout(async function tick() {
-            self._list
+            self.list
                 .filter(f => f.state === 'hold' && (vv.isEmpty(f.holdExpire) || (new Date()) > f.holdExpire))
                 .forEach(item => {
                     item.state = 'wait'
@@ -64,10 +64,23 @@ export class Loader {
                 })
             timerUnhold = setTimeout(tick, 1000)
         }, 1000)
+
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        let timerMove = setTimeout(async function tick() {
+            self._onMove()
+            self._onDelete()
+            timerMove = setTimeout(tick, 1000)
+        }, 1000)
+
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        let timerDone = setTimeout(async function tick() {
+            self.list = self.list.filter(f => f.state !== 'done')
+            timerDone = setTimeout(tick, 10000)
+        }, 10000)
     }
 
     private _stateReadyForLoad(): TLoader[] {
-        return this._list.filter(f => (f.state === 'wait' && f.countScan >= 3))
+        return this.list.filter(f => (f.state === 'wait' && f.countScan >= 3))
     }
 
     private async _onScan() {
@@ -106,7 +119,7 @@ export class Loader {
             }))
 
             files.filter(f => f.stat?.isFile() === true).forEach(itemf => {
-                const fnd = this._list.find(f => f.path === itemf.path && f.file === itemf.file)
+                const fnd = this.list.find(f => f.path === itemf.path && f.file === itemf.file)
                 if (fnd) {
                     if (fnd.stat.mtimeMs === itemf.stat.mtimeMs && fnd.stat.birthtimeMs === itemf.stat.birthtimeMs && fnd.stat.size === itemf.stat.size) {
                         if (fnd.state === 'wait') {
@@ -127,15 +140,15 @@ export class Loader {
                         return
                     }
 
-                    this._list.push({
+                    this.list.push({
                         path: itemf.path,
                         file: itemf.file,
                         state: 'wait',
                         stat: itemf.stat,
                         countScan: 1,
                         queryLoad: scan.queryLoad.length > 0 ? scan.queryLoad.join(`\n`) : this.queryLoadDefault,
-                        successPath: '',
-                        errorPath: '',
+                        successPath: vv.isEmpty(scan.logSuccessPath) ? this.logSuccessPathDefault : scan.logSuccessPath,
+                        errorPath: vv.isEmpty(scan.logErrorPath) ? this.logErrorPathDefault : scan.logErrorPath,
                         mode: scan.mode,
                     })
                     appLogger.trace('ldr', `find file "${path.join(itemf.path, itemf.file)}"`)
@@ -217,23 +230,76 @@ export class Loader {
                 }
                 if (error) {
                     appLogger.addToDigestError()
-                    item.state = 'error'
                     appLogger.error('ldr', `error load to mssql file "${path.join(item.path, item.file)}" - ${error}`)
                     appLogger.trace('ldr', query)
+                    item.state = 'error'
                     return
                 }
                 if (vv.toBool(data?.at(-1)?.rows?.at(-1)?.hold) === true) {
-                    item.state = 'hold'
                     item.countScan = 0
                     item.holdExpire = vv.dateAdd(new Date(), 'second', this.holdSec)
                     appLogger.trace('ldr', `load to mssql file "${path.join(item.path, item.file)}" on hold, next try after ${this.holdSec} second(s)`)
+                    item.state = 'hold'
                     return
                 }
+
                 appLogger.addToDigestSuccess()
                 appLogger.trace('ldr', `success load file "${path.join(item.path, item.file)}"`)
                 item.state = 'success'
             })
         }
+    }
+
+    private async _onMove() {
+        const list = this.list.filter(f => f.state === 'success' || f.state === 'error')
+        if (list.length <= 0) return
+        const suffixPath = vv.dateFormat(new Date(), 'yyyymmdd')
+        list.forEach(async item => {
+            let targetPath = undefined as string
+            if (item.state === 'success' && !vv.isEmpty(item.successPath)) {
+                targetPath = path.join(item.successPath, suffixPath)
+            } else if (item.state === 'error' && !vv.isEmpty(item.errorPath)) {
+                targetPath = path.join(item.errorPath, suffixPath)
+            }
+            if (vv.isEmpty(targetPath)) {
+                item.state = 'delete'
+                return
+            }
+
+            try {
+                await fs.ensureDir(targetPath)
+            } catch (error) {
+                appLogger.error('ldr', `error create/check dir "${targetPath}" - ${error}`)
+                item.state = 'delete'
+                return
+            }
+
+            const moveFrom = path.join(item.path, item.file)
+            const moveTo = path.join(targetPath, item.file)
+            try {
+                await fs.move(moveFrom, moveTo, {overwrite: true})
+                appLogger.trace('ldr', `success move file from "${moveFrom}" to "${moveTo}"`)
+                item.state = 'done'
+            } catch (error) {
+                appLogger.error('ldr', `error move file from "${moveFrom}" to "${moveTo}" - ${error}`)
+                item.state = 'delete'
+            }
+        })
+    }
+
+    private async _onDelete() {
+        const list = this.list.filter(f => f.state === 'delete')
+        if (list.length <= 0) return
+        list.forEach(async item => {
+            const deleteFile = path.join(item.path, item.file)
+            try {
+                await fs.unlink(deleteFile)
+                appLogger.trace('ldr', `success delete file "${deleteFile}"`)
+                item.state = 'done'
+            } catch (error) {
+                appLogger.error('ldr', `error delete file "${deleteFile}" - ${error}`)
+            }
+        })
     }
 }
 

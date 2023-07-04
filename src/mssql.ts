@@ -9,6 +9,7 @@ export class Mssql {
     instance = undefined as string
     login = undefined as string
     password = undefined as string
+    database = undefined as string
 
     private _connection = undefined as mssqldriver.TConnection
     private _driver = undefined as mssqldriver.IApp
@@ -38,13 +39,18 @@ export class Mssql {
                 login: this.login,
                 password: this.password,
                 additional: {
-                    appName: 'mssqlapifile-app'
+                    appName: 'mssqlapifile-app',
+                    database: this.database
                 }
             }
             needRecreate = true
         } else {
             if (this._connection.instance !== this.instance) {
                 this._connection.instance = this.instance
+                needRecreate = true
+            }
+            if (this._connection.additional.database !== this.database) {
+                this._connection.additional.database = this.database
                 needRecreate = true
             }
             if (this._connection.authentication === 'sqlserver' && this._connection.login !== this.login) {

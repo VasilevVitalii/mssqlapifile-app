@@ -2,7 +2,7 @@ import fs from 'fs-extra'
 import * as vv from 'vv-common'
 
 import { TOptionsSourceScan, TOptionsSourceScanMode } from "./options";
-import { appLogger, appMssql } from './app';
+import { appHold, appLogger, appMssql } from './app';
 import path from 'path';
 
 type TLoader = {
@@ -33,36 +33,48 @@ export class Loader {
 
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         let timerScan = setTimeout(async function tick() {
-            await self._onScan()
-            timerScan = setTimeout(tick, 1000)
+            if (appHold.getHold() === false) {
+                await self._onScan()
+                timerScan = setTimeout(tick, 1000)
+            } else {
+                timerScan = setTimeout(tick, 5000)
+            }
         }, 5000)
 
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         let timerLoad = setTimeout(async function tick() {
-            if (appMssql.getState() === 'no' || appMssql.getState() === 'lost') {
-                timerLoad = setTimeout(tick, 1000)
-                return
+            if (appHold.getHold() === false) {
+                if (appMssql.getState() === 'no' || appMssql.getState() === 'lost') {
+                    timerLoad = setTimeout(tick, 1000)
+                    return
+                }
+                let countThreads = self.list.filter(f => f.state === 'process').length
+                const countFreeThreads = self.maxThreads - countThreads
+                if (countFreeThreads > 0) {
+                    await self._onLoad(countFreeThreads)
+                    countThreads = self.list.filter(f => f.state === 'process').length
+                }
+                const timeout = self._stateReadyForLoad.length > 0 ? 200 : 1000
+                timerLoad = setTimeout(tick, timeout)
+            } else {
+                timerLoad = setTimeout(tick, 5000)
             }
-            let countThreads = self.list.filter(f => f.state === 'process').length
-            const countFreeThreads = self.maxThreads - countThreads
-            if (countFreeThreads > 0) {
-                await self._onLoad(countFreeThreads)
-                countThreads = self.list.filter(f => f.state === 'process').length
-            }
-            const timeout = self._stateReadyForLoad.length > 0 ? (countThreads < self.maxThreads ? 0 : 500) : 5000
-            timerLoad = setTimeout(tick, timeout)
         }, 5000)
 
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         let timerUnhold = setTimeout(async function tick() {
-            self.list
-                .filter(f => f.state === 'hold' && (vv.isEmpty(f.holdExpire) || (new Date()) > f.holdExpire))
-                .forEach(item => {
-                    item.state = 'wait'
-                    item.holdExpire = undefined
-                    item.countScan = 0
-                })
-            timerUnhold = setTimeout(tick, 1000)
+            if (appHold.getHold() === false) {
+                self.list
+                    .filter(f => f.state === 'hold' && (vv.isEmpty(f.holdExpire) || (new Date()) > f.holdExpire))
+                    .forEach(item => {
+                        item.state = 'wait'
+                        item.holdExpire = undefined
+                        item.countScan = 0
+                    })
+                timerUnhold = setTimeout(tick, 1000)
+            } else {
+                timerUnhold = setTimeout(tick, 5000)
+            }
         }, 1000)
 
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -74,9 +86,13 @@ export class Loader {
 
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         let timerDone = setTimeout(async function tick() {
-            self.list = self.list.filter(f => f.state !== 'done')
-            timerDone = setTimeout(tick, 10000)
-        }, 10000)
+            if (appHold.getHold() === false) {
+                self.list = self.list.filter(f => f.state !== 'done')
+            } else {
+                self.list = self.list.filter(f => f.state !== 'done' && f.state !== 'hold' && f.state !== 'wait')
+            }
+            timerDone = setTimeout(tick, 5000)
+        }, 5000)
     }
 
     private _stateReadyForLoad(): TLoader[] {

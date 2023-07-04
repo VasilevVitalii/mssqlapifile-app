@@ -22,7 +22,16 @@ function onChangeOptions(options: TOptions) {
 
     appLogger.debug('app', 'load setting')
 
-    appHold.setHold(options.service.hold)
+    appHold.setHoldManual(options.service.holdManual)
+    appHold.weekSunday = options.service.holdAuto.weekSunday
+    appHold.weekMonday = options.service.holdAuto.weekMonday
+    appHold.weekTuesday = options.service.holdAuto.weekTuesday
+    appHold.weekWednesday = options.service.holdAuto.weekWednesday
+    appHold.weekThursday = options.service.holdAuto.weekThursday
+    appHold.weekFriday = options.service.holdAuto.weekFriday
+    appHold.weekSaturday = options.service.holdAuto.weekSaturday
+    appHold.time = options.service.holdAuto.time
+    appHold.initHoldAuto()
 
     appLogger.setLoglifeDays(options.log.lifeDays)
     appLogger.setAllowTrace(options.log.allowTrace)
@@ -37,13 +46,12 @@ function onChangeOptions(options: TOptions) {
     appMssql.init()
 
     appLoader.scan = [...options.source.scan]
-    appLoader.logSuccessPathDefault = options.source.logErrorPathDefault
+    appLoader.logSuccessPathDefault = options.source.logSuccessPathDefault
     appLoader.logErrorPathDefault = options.source.logErrorPathDefault
     appLoader.maxThreads = options.mssql.maxThreads
     appLoader.holdSec = options.mssql.holdSec
     appLoader.queryLoadDefault = options.mssql.queryLoadDefault.join(`\n`)
 }
 
-//TODO pause param
-//TODO restart
 //TODO convert XLSX
+//TODO error ticket

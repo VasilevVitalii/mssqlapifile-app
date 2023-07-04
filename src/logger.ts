@@ -1,5 +1,5 @@
 import { Create as LoggerManagerCreate, IApp as ILoggerManager, ILogger } from 'vv-logger'
-import { appMssql } from './app'
+import { appHold, appMssql } from './app'
 import * as vv from 'vv-common'
 import * as metronom from 'vv-metronom'
 
@@ -29,9 +29,9 @@ export class Logger {
     private _prevLoglifeDays = undefined as number
     private _prevAllowTrace = undefined as boolean
     private _canWork = false
-    private _list = [] as TLoggerMessage[]
     private _digest = {countSuccess: 0, countError: 0} as TLoggerDigest
 
+    list = [] as TLoggerMessage[]
     queryLoadErrors = undefined as string
     queryLoadDigest = undefined as string
 
@@ -50,17 +50,25 @@ export class Logger {
 
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         let timerMssql = setTimeout(async function tick() {
-            await self._onTimerMssqlDigest()
-
-            const countSavedErrors = await self._onTimerMssqlErrors()
-            const timer = countSavedErrors > 50 ? 0 : 1000 * 10
-            timerMssql = setTimeout(tick, timer)
+            if (appHold.getHold() === false) {
+                await self._onTimerMssqlDigest()
+                const countSavedErrors = await self._onTimerMssqlErrors()
+                const timer = countSavedErrors > 50 ? 0 : 1000 * 10
+                timerMssql = setTimeout(tick, timer)
+            } else {
+                timerMssql = setTimeout(tick, 5000)
+            }
         }, 1000 * 10)
 
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         let timerClear = setTimeout(function tick() {
-            self._list = self._list.filter(f => f.stateMssql !== 'done' || f.stateLog !== 'done')
-            timerClear = setTimeout(tick, 1000 * 60 * 5)
+            if (appHold.getHold() === false) {
+                self.list = self.list.filter(f => f.stateMssql !== 'done' || f.stateLog !== 'done')
+                timerClear = setTimeout(tick, 1000 * 60 * 5)
+            } else {
+                self.list = self.list.filter(f => f.stateLog !== 'done')
+                timerClear = setTimeout(tick, 5000)
+            }
         }, 1000 * 60 * 5)
 
         const metronomDigest = metronom.Create({
@@ -68,20 +76,23 @@ export class Logger {
             cron: '0 */10 * * * *'
         })
         metronomDigest.onTick(() => {
-            const digest = {
-                countSuccess: this._digest.countSuccess,
-                countError: this._digest.countError
-            } as TLoggerDigest
-            this._digest.countSuccess = 0
-            this._digest.countError = 0
-            this._list.push({
-                subsystem: 'log',
-                text: `digest for last 30 minutes: success load ${digest.countSuccess} file(s), error load ${digest.countError} file(s)`,
-                type: 'digest',
-                stateLog: 'wait',
-                stateMssql: 'wait',
-                digest: digest
-            })
+            if (appHold.getHold() === false) {
+                const digest = {
+                    countSuccess: this._digest.countSuccess,
+                    countError: this._digest.countError
+                } as TLoggerDigest
+                this._digest.countSuccess = 0
+                this._digest.countError = 0
+                this.list.push({
+                    subsystem: 'log',
+                    text: `digest for last 10 minutes: success load ${digest.countSuccess} file(s), error load ${digest.countError} file(s)`,
+                    type: 'digest',
+                    stateLog: 'wait',
+                    stateMssql: 'wait',
+                    digest: digest
+                })
+            }
+            metronomDigest.allowNextTick()
         })
         metronomDigest.start()
     }
@@ -138,21 +149,21 @@ export class Logger {
     }
 
     debug(subsystem: string, text: string) {
-        this._list.push({subsystem: subsystem, text: text, type: 'debug', stateLog: 'wait', stateMssql: 'done'})
+        this.list.push({subsystem: subsystem, text: text, type: 'debug', stateLog: 'wait', stateMssql: 'done'})
     }
 
     trace(subsystem: string, text: string) {
-        this._list.push({subsystem: subsystem, text: text, type: 'trace', stateLog: 'wait', stateMssql: 'done'})
+        this.list.push({subsystem: subsystem, text: text, type: 'trace', stateLog: 'wait', stateMssql: 'done'})
     }
 
     error(subsystem: string, text: string) {
-        this._list.push({subsystem: subsystem, text: text, type: 'error', stateLog: 'wait', stateMssql: 'wait'})
+        this.list.push({subsystem: subsystem, text: text, type: 'error', stateLog: 'wait', stateMssql: 'wait'})
     }
 
     private _onTimerLog() {
         if (this._canWork !== true) return
 
-        this._list.filter(f => f.stateLog === 'wait').forEach(item => {
+        this.list.filter(f => f.stateLog === 'wait').forEach(item => {
             if (item.type === 'debug' || item.type === 'digest') {
                 this._logger.debugExt(item.subsystem, item.text)
             } else if (item.type === 'trace') {
@@ -170,7 +181,7 @@ export class Logger {
         }
 
         const query = [] as string[]
-        const list = this._list.filter(f => f.stateMssql === 'wait' && f.type === 'error').slice(0, 100)
+        const list = this.list.filter(f => f.stateMssql === 'wait' && f.type === 'error').slice(0, 100)
         if (vv.isEmpty(this.queryLoadErrors)) {
             list.forEach(item => item.stateMssql = 'done')
             return 0
@@ -205,7 +216,7 @@ export class Logger {
         }
 
         const query = [] as string[]
-        const list = this._list.filter(f => f.stateMssql === 'wait' && f.type === 'digest')
+        const list = this.list.filter(f => f.stateMssql === 'wait' && f.type === 'digest')
         if (vv.isEmpty(this.queryLoadDigest)) {
             list.forEach(item => item.stateMssql = 'done')
             return

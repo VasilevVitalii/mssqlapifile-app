@@ -40,7 +40,17 @@ export type TOptions = {
         logErrorPathDefault: string
     },
     service: {
-        hold: boolean
+        holdManual: boolean,
+        holdAuto: {
+            weekSunday: boolean,
+            weekMonday: boolean,
+            weekTuesday: boolean,
+            weekWednesday: boolean,
+            weekThursday: boolean,
+            weekFriday: boolean,
+            weekSaturday: boolean
+            time: string
+        }
     }
 }
 
@@ -79,7 +89,16 @@ const OPTIONS_SOURCE_LOGSUCCESSLIFEDAYS = 30
 const OPTIONS_SOURCE_LOGERRORLIFEDAYS = 30
 const OPTIONS_SOURCE_LOGSUCCESSPATHDEFAULT = path.join('scan', 'success')
 const OPTIONS_SOURCE_LOGERRORPATHDEFAULT = path.join('scan', 'error')
-const OPTIONS_SERVICE_HOLD = false
+const OPTIONS_SERVICE_HOLDMANUAL = false
+const OPTIONS_SERVICE_HOLDAUTO_WEEKSUNDAY = true
+const OPTIONS_SERVICE_HOLDAUTO_WEEKMONDAY = false
+const OPTIONS_SERVICE_HOLDAUTO_WEEKTUESDAY = false
+const OPTIONS_SERVICE_HOLDAUTO_WEEKWEDNESDAY = false
+const OPTIONS_SERVICE_HOLDAUTO_WEEKTHURSDAY = false
+const OPTIONS_SERVICE_HOLDAUTO_WEEKFRIDAY = false
+const OPTIONS_SERVICE_HOLDAUTO_WEEKSATURDAY = false
+const OPTIONS_SERVICE_HOLDAUTO_TIME = "03:15"
+
 
 export function OptionsDefault(): TOptions {
     return {
@@ -123,7 +142,17 @@ export function OptionsDefault(): TOptions {
             logErrorPathDefault: OPTIONS_SOURCE_LOGERRORPATHDEFAULT
         },
         service: {
-            hold: OPTIONS_SERVICE_HOLD
+            holdManual: OPTIONS_SERVICE_HOLDMANUAL,
+            holdAuto: {
+                weekSunday: OPTIONS_SERVICE_HOLDAUTO_WEEKSUNDAY,
+                weekMonday: OPTIONS_SERVICE_HOLDAUTO_WEEKMONDAY,
+                weekTuesday: OPTIONS_SERVICE_HOLDAUTO_WEEKTUESDAY,
+                weekWednesday: OPTIONS_SERVICE_HOLDAUTO_WEEKWEDNESDAY,
+                weekThursday: OPTIONS_SERVICE_HOLDAUTO_WEEKTHURSDAY,
+                weekFriday: OPTIONS_SERVICE_HOLDAUTO_WEEKFRIDAY,
+                weekSaturday: OPTIONS_SERVICE_HOLDAUTO_WEEKSATURDAY,
+                time: OPTIONS_SERVICE_HOLDAUTO_TIME
+            }
         }
     }
 }
@@ -210,7 +239,17 @@ export class Options {
                 logSuccessPathDefault: vv.toString(dataJson?.source?.logSuccessPathDefault)
             },
             service: {
-                hold: vv.toBool(dataJson?.service?.hold)
+                holdManual: vv.toBool(dataJson?.service?.holdManual),
+                holdAuto: {
+                    weekSunday: vv.toBool(dataJson?.service?.holdAuto?.weekSunday),
+                    weekMonday: vv.toBool(dataJson?.service?.holdAuto?.weekMonday),
+                    weekTuesday: vv.toBool(dataJson?.service?.holdAuto?.weekTuesday),
+                    weekWednesday: vv.toBool(dataJson?.service?.holdAuto?.weekWednesday),
+                    weekThursday: vv.toBool(dataJson?.service?.holdAuto?.weekThursday),
+                    weekFriday: vv.toBool(dataJson?.service?.holdAuto?.weekFriday),
+                    weekSaturday: vv.toBool(dataJson?.service?.holdAuto?.weekSaturday),
+                    time: vv.toString(dataJson?.service?.holdAuto?.time)
+                }
             }
         }
 
@@ -310,9 +349,41 @@ export class Options {
                 appLogger.debug('opt', `change and save param scan.queryLoad(#${itemIdx + 1}) - <see in file>`)
             }
         })
-        if (opt.service.hold === undefined) {
-            opt.service.hold = OPTIONS_SERVICE_HOLD
-            appLogger.debug('opt', `change and save param service.hold = "${OPTIONS_SERVICE_HOLD}"`)
+        if (opt.service.holdManual === undefined) {
+            opt.service.holdManual = OPTIONS_SERVICE_HOLDMANUAL
+            appLogger.debug('opt', `change and save param service.holdManual = "${OPTIONS_SERVICE_HOLDMANUAL}"`)
+        }
+        if (opt.service.holdAuto.weekSunday === undefined) {
+            opt.service.holdAuto.weekSunday = OPTIONS_SERVICE_HOLDAUTO_WEEKSUNDAY
+            appLogger.debug('opt', `change and save param service.holdAuto.weekSunday = "${OPTIONS_SERVICE_HOLDAUTO_WEEKSUNDAY}"`)
+        }
+        if (opt.service.holdAuto.weekMonday === undefined) {
+            opt.service.holdAuto.weekMonday = OPTIONS_SERVICE_HOLDAUTO_WEEKMONDAY
+            appLogger.debug('opt', `change and save param service.holdAuto.weekMonday = "${OPTIONS_SERVICE_HOLDAUTO_WEEKMONDAY}"`)
+        }
+        if (opt.service.holdAuto.weekTuesday === undefined) {
+            opt.service.holdAuto.weekTuesday = OPTIONS_SERVICE_HOLDAUTO_WEEKTUESDAY
+            appLogger.debug('opt', `change and save param service.holdAuto.weekTuesday = "${OPTIONS_SERVICE_HOLDAUTO_WEEKTUESDAY}"`)
+        }
+        if (opt.service.holdAuto.weekWednesday === undefined) {
+            opt.service.holdAuto.weekWednesday = OPTIONS_SERVICE_HOLDAUTO_WEEKWEDNESDAY
+            appLogger.debug('opt', `change and save param service.holdAuto.weekWednesday = "${OPTIONS_SERVICE_HOLDAUTO_WEEKWEDNESDAY}"`)
+        }
+        if (opt.service.holdAuto.weekThursday === undefined) {
+            opt.service.holdAuto.weekThursday = OPTIONS_SERVICE_HOLDAUTO_WEEKTHURSDAY
+            appLogger.debug('opt', `change and save param service.holdAuto.weekThursday = "${OPTIONS_SERVICE_HOLDAUTO_WEEKTHURSDAY}"`)
+        }
+        if (opt.service.holdAuto.weekFriday === undefined) {
+            opt.service.holdAuto.weekFriday = OPTIONS_SERVICE_HOLDAUTO_WEEKFRIDAY
+            appLogger.debug('opt', `change and save param service.holdAuto.weekFriday = "${OPTIONS_SERVICE_HOLDAUTO_WEEKFRIDAY}"`)
+        }
+        if (opt.service.holdAuto.weekSaturday === undefined) {
+            opt.service.holdAuto.weekSaturday = OPTIONS_SERVICE_HOLDAUTO_WEEKSATURDAY
+            appLogger.debug('opt', `change and save param service.holdAuto.weekSaturday = "${OPTIONS_SERVICE_HOLDAUTO_WEEKSATURDAY}"`)
+        }
+        if (opt.service.holdAuto.time?.length !== 5 || !(new RegExp(`^(2[0-3]|[01]?[0-9]):([0-5]?[0-9])$`)).test(opt.service.holdAuto.time)) {
+            opt.service.holdAuto.time = OPTIONS_SERVICE_HOLDAUTO_TIME
+            appLogger.debug('opt', `change and save param service.holdAuto.time = "${OPTIONS_SERVICE_HOLDAUTO_TIME}"`)
         }
 
         if (JSON.stringify(opt, null, 4) !== dataRaw) {

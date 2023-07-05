@@ -1,9 +1,10 @@
 import fs from 'fs-extra'
 import * as vv from 'vv-common'
 
-import { TOptionsSourceScan, TOptionsSourceScanMode } from "./options";
+import { TOptionsSourceScan, TOptionsSourceScanConverterXlsx, TOptionsSourceScanMode } from "./options";
 import { appHold, appLogger, appMssql } from './app';
 import path from 'path';
+import { Read } from './converter.xlsx';
 
 type TLoader = {
     path: string,
@@ -15,7 +16,10 @@ type TLoader = {
     errorPath: string,
     queryLoad: string,
     mode: TOptionsSourceScanMode,
-    holdExpire?: Date
+    holdExpire?: Date,
+    converter: {
+        xlsx: TOptionsSourceScanConverterXlsx
+    }
 }
 
 export class Loader {
@@ -166,6 +170,7 @@ export class Loader {
                         successPath: vv.isEmpty(scan.logSuccessPath) ? this.logSuccessPathDefault : scan.logSuccessPath,
                         errorPath: vv.isEmpty(scan.logErrorPath) ? this.logErrorPathDefault : scan.logErrorPath,
                         mode: scan.mode,
+                        converter: scan.converter
                     })
                     appLogger.trace('ldr', `find file "${path.join(itemf.path, itemf.file)}"`)
                 }
@@ -194,9 +199,17 @@ export class Loader {
             let dataBodyAsBase64 = 'NULL'
             let dataBodyAsBinary = 'NULL'
 
+            let converterData = undefined as string
+            if (item.converter.xlsx !== 'none' && vv.equal(path.extname(item.file), '.xlsx')) {
+                converterData = await Read(path.join(item.path, item.file), item.converter.xlsx)
+            }
+
             if (item.mode === 'bodyAsUtf8') {
                 try {
-                    dataBodyAsUtf8 = `'` + (await fs.readFile(path.join(item.path, item.file), 'utf8')).replaceAll(`'`, `''`) + `'`
+
+                    dataBodyAsUtf8 = `'` + (
+                        converterData === undefined ? await fs.readFile(path.join(item.path, item.file), 'utf8') : converterData
+                        ).replaceAll(`'`, `''`) + `'`
                 } catch (error) {
                     appLogger.error('ldr', `error read file ${path.join(item.path, item.file)} - ${error}`)
                     item.state = 'error'
@@ -204,7 +217,9 @@ export class Loader {
                 }
             } else if (item.mode === 'bodyAsBase64') {
                 try {
-                    dataBodyAsBase64 = `'` + await fs.readFile(path.join(item.path, item.file), 'base64') + `'`
+                    dataBodyAsBase64 = `'` + (
+                        converterData === undefined ? await fs.readFile(path.join(item.path, item.file), 'base64') : Buffer.from(converterData).toString('base64')
+                        ) + `'`
                 } catch (error) {
                     appLogger.error('ldr', `error read file ${path.join(item.path, item.file)} - ${error}`)
                     item.state = 'error'
@@ -212,7 +227,9 @@ export class Loader {
                 }
             } else if (item.mode === 'bodyAsBinary') {
                 try {
-                    dataBodyAsBinary = `'` + (await fs.readFile(path.join(item.path, item.file))).toString('hex') + `'`
+                    dataBodyAsBinary = `'` + (
+                        converterData === undefined ? await fs.readFile(path.join(item.path, item.file)) : Buffer.from(converterData)
+                        ).toString('hex') + `'`
                 } catch (error) {
                     appLogger.error('ldr', `error read file ${path.join(item.path, item.file)} - ${error}`)
                     item.state = 'error'

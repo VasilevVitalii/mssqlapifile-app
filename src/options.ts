@@ -6,12 +6,17 @@ import { appLogger } from './app'
 
 export type TOptionsSourceScanMode = 'bodyAsUtf8' | 'bodyAsBase64' | 'bodyAsBinary' | 'fullFileName'
 
+export type TOptionsSourceScanConverterXlsx = 'none' | 'xml' | 'json'
+
 export type TOptionsSourceScan = {
     mode: TOptionsSourceScanMode
     path: string,
     queryLoad: string[],
     logSuccessPath: string,
-    logErrorPath: string
+    logErrorPath: string,
+    converter: {
+        xlsx: TOptionsSourceScanConverterXlsx
+    }
 }
 
 export type TOptions = {
@@ -83,12 +88,16 @@ const OPTIONS_SOURCE_SCAN_QUERYLOAD2 = [
     "INSERT INTO [dbo].[YourFileStorage] ([data])",
     "SELECT [data_bodyAsBase64] FROM #mssqlapifile_app_files"
 ]
+const OPTIONS_SOURCE_SCAN_CONVERTER_XLSX = 'none'
+const OPTIONS_SOURCE_SCAN_CONVERTER_XLSX1 = 'xml'
+const OPTIONS_SOURCE_SCAN_CONVERTER_XLSX2 = 'json'
 const OPTIONS_SOURCE_SCAN_LOGSUCCESSPATH = path.join('scan', 'success')
 const OPTIONS_SOURCE_SCAN_LOGERRORPATH = path.join('scan', 'error')
 const OPTIONS_SOURCE_LOGSUCCESSLIFEDAYS = 30
 const OPTIONS_SOURCE_LOGERRORLIFEDAYS = 30
 const OPTIONS_SOURCE_LOGSUCCESSPATHDEFAULT = path.join('scan', 'success')
 const OPTIONS_SOURCE_LOGERRORPATHDEFAULT = path.join('scan', 'error')
+
 const OPTIONS_SERVICE_HOLDMANUAL = false
 const OPTIONS_SERVICE_HOLDAUTO_WEEKSUNDAY = true
 const OPTIONS_SERVICE_HOLDAUTO_WEEKMONDAY = false
@@ -98,7 +107,6 @@ const OPTIONS_SERVICE_HOLDAUTO_WEEKTHURSDAY = false
 const OPTIONS_SERVICE_HOLDAUTO_WEEKFRIDAY = false
 const OPTIONS_SERVICE_HOLDAUTO_WEEKSATURDAY = false
 const OPTIONS_SERVICE_HOLDAUTO_TIME = "03:15"
-
 
 export function OptionsDefault(): TOptions {
     return {
@@ -126,20 +134,26 @@ export function OptionsDefault(): TOptions {
                     path: OPTIONS_SOURCE_SCAN_PATH1,
                     logSuccessPath: OPTIONS_SOURCE_SCAN_LOGSUCCESSPATH,
                     logErrorPath: OPTIONS_SOURCE_SCAN_LOGERRORPATH,
-                    queryLoad: OPTIONS_SOURCE_SCAN_QUERYLOAD1
+                    queryLoad: OPTIONS_SOURCE_SCAN_QUERYLOAD1,
+                    converter: {
+                        xlsx: OPTIONS_SOURCE_SCAN_CONVERTER_XLSX1
+                    }
                 },
                 {
                     mode: OPTIONS_SOURCE_SCAN_MODE2,
                     path: OPTIONS_SOURCE_SCAN_PATH2,
                     logSuccessPath: OPTIONS_SOURCE_SCAN_LOGSUCCESSPATH,
                     logErrorPath: OPTIONS_SOURCE_SCAN_LOGERRORPATH,
-                    queryLoad: OPTIONS_SOURCE_SCAN_QUERYLOAD2
+                    queryLoad: OPTIONS_SOURCE_SCAN_QUERYLOAD2,
+                    converter: {
+                        xlsx: OPTIONS_SOURCE_SCAN_CONVERTER_XLSX2
+                    }
                 },
             ],
             logSuccessLifeDays: OPTIONS_SOURCE_LOGSUCCESSLIFEDAYS,
             logErrorLifeDays: OPTIONS_SOURCE_LOGERRORLIFEDAYS,
             logSuccessPathDefault: OPTIONS_SOURCE_LOGSUCCESSPATHDEFAULT,
-            logErrorPathDefault: OPTIONS_SOURCE_LOGERRORPATHDEFAULT
+            logErrorPathDefault: OPTIONS_SOURCE_LOGERRORPATHDEFAULT,
         },
         service: {
             holdManual: OPTIONS_SERVICE_HOLDMANUAL,
@@ -347,6 +361,13 @@ export class Options {
             if (JSON.stringify(queryLoad) !== JSON.stringify(item.queryLoad)) {
                 item.queryLoad = queryLoad
                 appLogger.debug('opt', `change and save param scan.queryLoad(#${itemIdx + 1}) - <see in file>`)
+            }
+            item.converter = {
+                xlsx: vv.toString(item.converter?.xlsx) as any
+            }
+            if (item.converter.xlsx !== 'xml' && item.converter.xlsx !== 'json' && item.converter.xlsx !== 'none') {
+                item.converter.xlsx = OPTIONS_SOURCE_SCAN_CONVERTER_XLSX
+                appLogger.debug('opt', `change and save param scan.converter.xlsx #${itemIdx + 1} = "${OPTIONS_SOURCE_SCAN_CONVERTER_XLSX}"`)
             }
         })
         if (opt.service.holdManual === undefined) {

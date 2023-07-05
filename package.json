@@ -39,6 +39,7 @@
         "vv-httpgate": "^0.1.1",
         "vv-jwt": "^0.0.5",
         "vv-logger": "^0.1.0",
-        "vv-metronom": "^0.1.1"
+        "vv-metronom": "^0.1.1",
+        "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.0/xlsx-0.20.0.tgz"
     }
 }

@@ -35,7 +35,6 @@ export type TOptions = {
         holdSec: number,
         queryLoadErrors: string[],
         queryLoadDigest: string[],
-        queryLoadDefault: string[],
     },
     source: {
         scan: TOptionsSourceScan[],
@@ -125,7 +124,6 @@ export function OptionsDefault(): TOptions {
             holdSec: OPTIONS_MSSQL_HOLDSEC,
             queryLoadErrors: OPTIONS_MSSQL_QUERYLOADERRORS,
             queryLoadDigest: OPTIONS_MSSQL_QUERYLOADDIGEST,
-            queryLoadDefault: OPTIONS_MSSQL_QUERYLOADDEFAULT,
         },
         source: {
             scan: [
@@ -241,7 +239,6 @@ export class Options {
                 },
                 maxThreads: vv.toIntPositive (dataJson?.mssql?.maxThreads),
                 holdSec: vv.toIntPositive (dataJson?.mssql?.holdSec),
-                queryLoadDefault: (Array.isArray(dataJson?.mssql?.queryLoadDefault) ? dataJson.mssql.queryLoadDefault : []),
                 queryLoadErrors: (Array.isArray(dataJson?.mssql?.queryLoadErrors) ? dataJson.mssql.queryLoadErrors : []),
                 queryLoadDigest: (Array.isArray(dataJson?.mssql?.queryLoadDigest) ? dataJson.mssql.queryLoadDigest : []),
             },
@@ -308,11 +305,6 @@ export class Options {
         if (JSON.stringify(newQueryLoadDigest) !== JSON.stringify(opt.mssql.queryLoadDigest)) {
             opt.mssql.queryLoadDigest = newQueryLoadDigest
             appLogger.debug('opt', `change and save param mssql.queryLoadDigest - <see in file>`)
-        }
-        const newQueryLoadDefault = opt.mssql.queryLoadDefault.map(m => vv.toString(m)?.trim()).filter(f => !vv.isEmpty(f))
-        if (JSON.stringify(newQueryLoadDefault) !== JSON.stringify(opt.mssql.queryLoadDefault)) {
-            opt.mssql.queryLoadDefault = newQueryLoadDefault
-            appLogger.debug('opt', `change and save param mssql.queryLoadDefault - <see in file>`)
         }
         if (opt.source.logSuccessLifeDays === undefined || opt.source.logSuccessLifeDays < 0) {
             opt.source.logSuccessLifeDays = OPTIONS_SOURCE_LOGSUCCESSLIFEDAYS
@@ -415,7 +407,6 @@ export class Options {
             }
         }
 
-        const isQueryLoadDefaultEmpty = opt.mssql.queryLoadDefault.length === 0
         const scan = [] as TOptionsSourceScan[]
         for (let i = 0; i < opt.source.scan.length; i++) {
             const item1 = opt.source.scan[i]
@@ -423,8 +414,8 @@ export class Options {
                 appLogger.debug('opt', `ignore scan #${i + 1} - path is empty`)
                 break
             }
-            if (isQueryLoadDefaultEmpty && vv.isEmpty(item1.queryLoad)) {
-                appLogger.debug('opt', `ignore scan #${i + 1} - queryLoad and queryLoadDefault are empty`)
+            if (vv.isEmpty(item1.queryLoad)) {
+                appLogger.debug('opt', `ignore scan #${i + 1} - queryLoad is empty`)
                 break
             }
 

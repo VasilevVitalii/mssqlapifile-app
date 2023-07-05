@@ -40,6 +40,7 @@
         "vv-jwt": "^0.0.5",
         "vv-logger": "^0.1.0",
         "vv-metronom": "^0.1.1",
-        "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.0/xlsx-0.20.0.tgz"
+        "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.0/xlsx-0.20.0.tgz",
+        "xml-js": "^1.6.11"
     }
 }

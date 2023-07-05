@@ -28,7 +28,6 @@ export class Loader {
     logErrorPathDefault = undefined as string
     maxThreads = 1 as number
     holdSec = undefined as number
-    queryLoadDefault = undefined as string
 
     list = [] as TLoader[]
 
@@ -166,7 +165,7 @@ export class Loader {
                         state: 'wait',
                         stat: itemf.stat,
                         countScan: 1,
-                        queryLoad: scan.queryLoad.length > 0 ? scan.queryLoad.join(`\n`) : this.queryLoadDefault,
+                        queryLoad: scan.queryLoad.join(`\n`),
                         successPath: vv.isEmpty(scan.logSuccessPath) ? this.logSuccessPathDefault : scan.logSuccessPath,
                         errorPath: vv.isEmpty(scan.logErrorPath) ? this.logErrorPathDefault : scan.logErrorPath,
                         mode: scan.mode,

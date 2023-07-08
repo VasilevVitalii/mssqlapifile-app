@@ -2,9 +2,9 @@
 import path from 'path'
 import fs from 'fs-extra'
 import * as vv from 'vv-common'
-import * as metronom from 'vv-metronom'
+import { Timer } from './timer'
 export type TSettingQuery = {key: string, query: string[]}
-export type TSettingScanModeLoad =
+export type TSettingModeLoad =
     'bodyAsUtf8' |
     'bodyAsBase64' |
     'bodyAsBinary' |
@@ -18,14 +18,19 @@ export const SettingScanModeLoadArr = [
     'fullFileName',
     'xlsx2json',
     'xlsx2xml'
-] as TSettingScanModeLoad[]
+] as TSettingModeLoad[]
 
 export type TSettingScan = {
+    pathKey: string,
     mask: string,
-    modeLoad: TSettingScanModeLoad,
+    modeLoad: TSettingModeLoad,
     queryLoadKey: string,
-    logFileSuccessPath: string,
-    logFileErrorPath: string,
+    logFileSuccessPathKey: string,
+    logFileErrorPathKey: string,
+}
+
+export type TSettingFs = {
+    key: string, path: string
 }
 
 export type TSetting = {
@@ -45,8 +50,9 @@ export type TSetting = {
         maxStreams: number,
         queries: TSettingQuery[],
         queryLoadErrorsKey: string,
-        queryLoadDigestKey: string,
+        queryLoadDigestKey: string
     },
+    fs: TSettingFs[],
     scan: TSettingScan [],
     service: {
         hold: boolean,
@@ -66,13 +72,13 @@ export type TSetting = {
 export class Setting {
     private _appPath = undefined as string
     private _settingJson = undefined as string
-    private _taskReadSetting = undefined as metronom.Metronom
+    private _taskReadSetting = undefined as Timer
     private _eventOnRead = undefined as (setting: TSetting, messages: string[], error: string) => void
 
     constructor(appPath: string) {
         this._appPath = appPath
-        this._taskReadSetting = metronom.Create({kind: 'cron', cron: '*/5 * * * * *'})
-        this._taskReadSetting.onTick(async () => {
+
+        this._taskReadSetting = new Timer(2000, async () => {
             if (this._eventOnRead) {
                 const result = await this._read()
                 const change = JSON.stringify(result.setting) !== this._settingJson
@@ -80,9 +86,8 @@ export class Setting {
                     this._eventOnRead(result.setting, result.messages, result.error)
                 }
             }
-            this._taskReadSetting.allowNextTick()
+            this._taskReadSetting.nextTick(5000)
         })
-        this._taskReadSetting.start()
     }
 
     eventOnRead(proc: (setting: TSetting, messages: string[], error: string) => void) {
@@ -154,11 +159,16 @@ export class Setting {
                 queryLoadErrorsKey: vv.toString(dataJson?.mssql?.queryLoadErrorsKey),
                 queryLoadDigestKey: vv.toString(dataJson?.mssql?.queryLoadDigestKey),
             },
+            fs: (Array.isArray(dataJson?.fs) ? dataJson.fs : []).map(m => { return {
+                key: vv.toString(m?.key),
+                path: vv.toString(m?.path),
+            }}),
             scan: (Array.isArray(dataJson?.scan) ? dataJson.scan : []).map(m => { return {
+                pathKey: vv.toString(m?.pathKey),
                 mask: vv.toString(m?.mask),
-                modeLoad: vv.toString(m?.modeLoad) as TSettingScanModeLoad,
-                logFileErrorPath: vv.toString(m?.logFileErrorPath),
-                logFileSuccessPath: vv.toString(m?.logFileSuccessPath),
+                modeLoad: vv.toString(m?.modeLoad) as TSettingModeLoad,
+                logFileErrorPathKey: vv.toString(m?.logFileErrorPathKey),
+                logFileSuccessPathKey: vv.toString(m?.logFileSuccessPathKey),
                 queryLoadKey: vv.toString(m?.queryLoadKey),
             }}),
             service: {
@@ -221,21 +231,20 @@ export class Setting {
             setting.mssql.queryLoadDigestKey = d.mssql.queryLoadDigestKey
             messages.push(`change and save param "mssql.queryLoadDigestKey" = "${setting.mssql.queryLoadDigestKey}"`)
         }
+        setting.fs.forEach((item) => {
+            if (item.key === undefined) item.key = ""
+            if (item.path === undefined) item.path = ""
+        })
         setting.scan.forEach((item, itemIdx) => {
+            if (item.pathKey === undefined) item.pathKey = ""
             if (item.mask === undefined) item.mask = ""
             if (item.queryLoadKey === undefined) item.queryLoadKey = ""
             if (item.modeLoad === undefined) {
                 item.modeLoad = d.scan[0].modeLoad
                 messages.push(`change and save param "mssql.scan[${itemIdx}].modeLoad" = "${item.modeLoad}"`)
             }
-            if (item.logFileErrorPath === undefined) {
-                item.logFileErrorPath = d.scan[0].logFileErrorPath
-                messages.push(`change and save param "mssql.scan[${itemIdx}].logFileErrorPath" = "${item.logFileErrorPath}"`)
-            }
-            if (item.logFileSuccessPath === undefined) {
-                item.logFileSuccessPath = d.scan[0].logFileSuccessPath
-                messages.push(`change and save param "mssql.scan[${itemIdx}].logFileSuccessPath" = "${item.logFileSuccessPath}"`)
-            }
+            if (item.logFileErrorPathKey === undefined) item.logFileErrorPathKey = ""
+            if (item.logFileSuccessPathKey === undefined) item.logFileSuccessPathKey = ""
         })
         if (setting.service.hold === undefined) {
             setting.service.hold = d.service.hold
@@ -283,6 +292,19 @@ export class Setting {
                 errorSave = `${errorSave}`
             }
         }
+
+        setting.scan.forEach((item, itemIdx) => {
+            if (!setting.mssql.queries.some(f => f.key === item.queryLoadKey)) {
+                messages.push(`scan #${itemIdx} has bad queryLoadKey = "${item.queryLoadKey}"`)
+            }
+            if (item.logFileErrorPathKey && !setting.fs.some(f => f.key === item.logFileErrorPathKey)) {
+                messages.push(`scan #${itemIdx} has bad logFileErrorPathKey = "${item.logFileErrorPathKey}"`)
+            }
+            if (item.logFileSuccessPathKey && !setting.fs.some(f => f.key === item.logFileSuccessPathKey)) {
+                messages.push(`scan #${itemIdx} has bad logFileSuccessPathKey = "${item.logFileSuccessPathKey}"`)
+            }
+        })
+
         return {
             setting: setting,
             messages: messages,
@@ -332,26 +354,36 @@ export class Setting {
                 queryLoadErrorsKey: 'error',
                 queryLoadDigestKey: 'digest',
             },
+            fs: [
+                {key: 'success', path: path.join(this._appPath, 'scan', 'success')},
+                {key: 'error', path: path.join(this._appPath, 'scan', 'error')},
+                {key: 'scan', path: path.join(this._appPath, 'scan')},
+                {key: 'folder2', path: path.join(this._appPath, 'scan', 'folder2')},
+
+            ],
             scan: [
                 {
-                    mask: path.join(this._appPath, 'scan', 'folder1', '*.txt'),
+                    pathKey: "scan",
+                    mask: path.join('folder1', '*.txt'),
                     modeLoad: 'bodyAsUtf8',
-                    logFileErrorPath: path.join(this._appPath, 'scan', 'error'),
-                    logFileSuccessPath: path.join(this._appPath, 'scan', 'success'),
+                    logFileErrorPathKey: 'error',
+                    logFileSuccessPathKey: 'success',
                     queryLoadKey: 'default'
                 },
                 {
-                    mask: path.join(this._appPath, 'scan', 'folder1', 'aa*.xlsx'),
+                    pathKey: "scan",
+                    mask: path.join('folder1', 'aa*.xlsx'),
                     modeLoad: 'xlsx2xml',
-                    logFileErrorPath: path.join(this._appPath, 'scan', 'error'),
-                    logFileSuccessPath: path.join(this._appPath, 'scan', 'success'),
+                    logFileErrorPathKey: 'error',
+                    logFileSuccessPathKey: 'success',
                     queryLoadKey: 'default'
                 },
                 {
-                    mask: path.join(this._appPath, 'scan', 'folder2', '*.png'),
+                    pathKey: "folder2",
+                    mask: '*.png',
                     modeLoad: 'bodyAsBase64',
-                    logFileErrorPath: path.join(this._appPath, 'scan', 'error'),
-                    logFileSuccessPath: path.join(this._appPath, 'scan', 'success'),
+                    logFileErrorPathKey: 'error',
+                    logFileSuccessPathKey: 'success',
                     queryLoadKey: 'default'
                 },
             ],

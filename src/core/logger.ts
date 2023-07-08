@@ -1,21 +1,24 @@
 /* eslint-disable @typescript-eslint/naming-convention */
-import { Create as LoggerManagerCreate, IApp as ILoggerManager, ILogger } from 'vv-logger'
+import { Create as LoggerManagerCreate, ILogger } from 'vv-logger'
 import { Numerator } from './numerator'
 import path from 'path'
-import * as metronom from 'vv-metronom'
+import { Timer } from './timer'
+import { TWElogDigest, TWElogError } from '../exchange'
 
-type TLoggerItemDigest = {
-    countSuccess: number,
-    countError: number
-}
-type TLoggerItem = {
+type TLogger = {
     key: string
     isInFile: boolean,
     isInSql: boolean,
     subsystem: string,
     text: string,
-    type: 'trace' | 'debug' | 'error' | 'digest',
-    digest?: TLoggerItemDigest
+    type: 'trace' | 'debug' | 'error'
+} | {
+    key: string
+    isInFile: boolean,
+    isInSql: boolean,
+    type: 'digest',
+    digestCountSuccess?: number
+    digestCountError?: number
 }
 
 const numerator = new Numerator('log')
@@ -27,53 +30,49 @@ export class Logger {
     private _logAllowTrace = undefined as boolean
     private _logger = undefined as ILogger
     private _allowInFile = true
-    private _allowInSql = false
-    private _list = [] as TLoggerItem[]
+    private _list = [] as TLogger[]
     private _loggerManager = LoggerManagerCreate()
-    private _taskLoggerFile = undefined as metronom.Metronom
-    private _taskLoggerMssql = undefined as metronom.Metronom
-    private _digest = {
-        countError: 0,
-        countSuccess: 0
-    } as TLoggerItemDigest
+    private _taskLoggerFile = undefined as Timer
+    private _taskLoggerMssql = undefined as Timer
+    private _eventOnMssql = undefined as (log: (TWElogError | TWElogDigest)[]) => void
 
     constructor(appPath: string) {
         this._appPath = appPath
         this._loggerManager = LoggerManagerCreate()
         this._loggerManager.onError(error => {
-            this.LogError('log', error.message)
+            this.logError('log', error.message)
         })
-        this._taskLoggerFile = metronom.Create({kind: 'cron', cron: '*/2 * * * * *'})
-        this._taskLoggerFile.onTick(() => {
+
+        this._taskLoggerFile = new Timer(2000, () => {
             this._onTaskLoggerFile()
-            this._taskLoggerFile.allowNextTick()
+            this._taskLoggerFile.nextTick()
         })
-        this._taskLoggerFile.start()
-        this._taskLoggerMssql = metronom.Create({kind: 'cron', cron: '0 */5 * * * *'})
-        this._taskLoggerMssql.onTick(() => {
+
+        this._taskLoggerMssql = new Timer(1000 * 30, () => {
             this._onTaskLoggerMssql()
-            this._taskLoggerMssql.allowNextTick()
+            this._list
+                .filter(f => f.isInFile && f.isInSql)
+                .forEach(item => this._list.splice(this._list.findIndex(f => f.key === item.key), 1))
+            this._taskLoggerMssql.nextTick(1000 * 60 * 2)
         })
-        this._taskLoggerMssql.start()
     }
 
-    AllowInSql(value: boolean) {
-        this._allowInSql = value
+    eventOnMssql(proc: (log: (TWElogError | TWElogDigest)[]) => void) {
+        this._eventOnMssql = proc
     }
-    LogTrace(subsystem: string, text: string) {
+    logTrace(subsystem: string, text: string) {
         this._list.push({key: numerator.getKey(), subsystem, text, isInFile: false, isInSql: false, type: 'trace'})
     }
-    LogDebug(subsystem: string, text: string) {
+    logDebug(subsystem: string, text: string) {
         this._list.push({key: numerator.getKey(),subsystem, text, isInFile: false, isInSql: false, type: 'debug'})
     }
-    LogError(subsystem: string, text: string) {
+    logError(subsystem: string, text: string) {
         this._list.push({key: numerator.getKey(),subsystem, text, isInFile: false, isInSql: false, type: 'error'})
     }
-    LogDigest(countSuccess: number, countError: number) {
-        this._digest.countSuccess = this._digest.countSuccess + countSuccess
-        this._digest.countError = this._digest.countError + countError
+    logDigest(countSuccess: number, countError: number) {
+        this._list.push({key: numerator.getKey(), isInFile: false, isInSql: false, type: 'digest', digestCountSuccess: countSuccess, digestCountError: countError})
     }
-    Restart(LogLifeDays: number, LogAllowTrace: boolean) {
+    restart(LogLifeDays: number, LogAllowTrace: boolean) {
         if (LogLifeDays === this._logLifeDays && LogAllowTrace === this._logAllowTrace) return
         this._allowInFile = false
         this._logLifeDays = LogLifeDays
@@ -96,25 +95,38 @@ export class Logger {
     private _onTaskLoggerFile() {
         if (!this._allowInFile || this._logger === undefined) return
         this._list.filter(f => !f.isInFile).forEach(item => {
-            if (item.type === 'error') {
-                this._logger.errorExt(item.subsystem, item.text)
-            } else if (item.type === 'debug' || item.type === 'digest') {
-                this._logger.debugExt(item.subsystem, item.text)
-            } else if (item.type === 'trace') {
+            if (item.type === 'trace') {
                 this._logger.traceExt(item.subsystem, item.text)
+            } else if (item.type === 'debug') {
+                this._logger.debugExt(item.subsystem, item.text)
+            } else if (item.type === 'digest') {
+                this._logger.debugExt('app', `success load ${item.digestCountSuccess} file(s), error load ${item.digestCountError} file(s)`)
+            } else if (item.type === 'error') {
+                this._logger.errorExt(item.subsystem, item.text)
             }
             item.isInFile = true
         })
     }
 
     private _onTaskLoggerMssql() {
-        if (!this._allowInSql || this._logger !== undefined) return
+        if (this._logger === undefined || this._eventOnMssql === undefined) return
+        const list = [] as (TWElogError | TWElogDigest)[]
 
-        //TODO create
+        this._list.filter(f => !f.isInSql).slice(0, 99).forEach(item => {
+            if (item.type === 'digest') {
+                list.push({kind: 'log.digest', countSuccess: item.digestCountSuccess, countError: item.digestCountError})
+            } else if (item.type === 'error') {
+                list.push({kind: 'log.error', subsystem: item.subsystem, text: item.text})
+            }
+            item.isInSql = true
+        })
 
-        console.log('MSSQL')
-
-        //this._list.push({key: numerator.getKey(),subsystem: 'app', text: `success load ${countSuccess} file(s), error load ${countError} file(s)` , isInFile: false, isInSql: false, type: 'digest', digest: {countSuccess, countError}})
+        if (list.length > 0) {
+            this._eventOnMssql(list)
+        }
+        if (list.length > 90) {
+            this._onTaskLoggerMssql()
+        }
     }
 
 }

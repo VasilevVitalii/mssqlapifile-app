@@ -1,11 +1,11 @@
 import { workerData, parentPort } from 'worker_threads'
 import { Setting } from '../core/setting'
 import { Logger } from '../core/logger'
-import { TWElogDebug, TWElogDigest, TWElogError, TWElogTrace, TWEsetting } from '../exchange'
+import { TWEhold, TWElogDebug, TWElogDigest, TWElogDigestLoad, TWElogError, TWElogErrorLoad, TWElogTrace, TWEsetting } from '../exchange'
 
 export type TWorkerDataApp = {currentPath: string}
-export type TMessageImportApp = TWElogError | TWElogTrace | TWElogDebug | TWElogDigest
-export type TMessageExportApp = TWEsetting | TWElogError
+export type TMessageImportApp = TWElogError | TWElogTrace | TWElogDebug | TWElogDigest | TWEhold
+export type TMessageExportApp = TWEsetting | TWElogErrorLoad | TWElogDigestLoad
 
 const env = {
     workerData: workerData as TWorkerDataApp,
@@ -28,8 +28,8 @@ env.setting.eventOnRead((setting, messages, error) => {
     parentPort.postMessage({kind: 'setting', setting} as TMessageExportApp)
 })
 
-env.logger.eventOnMssql(list => {
-    parentPort.postMessage(list as TMessageExportApp[])
+env.logger.eventOnMssql(item => {
+    parentPort.postMessage(item as TMessageExportApp)
 })
 
 parentPort.on('message', (command: TMessageImportApp) => {
@@ -41,7 +41,7 @@ parentPort.on('message', (command: TMessageImportApp) => {
     } else if (command.kind === 'log.error') {
         env.logger.logError(command.subsystem, command.text)
     } else if (command.kind === 'log.digest') {
-        env.logger.logDigest(command.countSuccess, command.countError)
+        env.logger.logDigest(command.countSuccess, command.countError, command.countQueue)
     } else {
         env.logger.logError('app', `internal error - unknown command kind "${unknownCommand}"`)
     }

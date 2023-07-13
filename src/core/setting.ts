@@ -33,6 +33,10 @@ export type TSettingFs = {
     key: string, path: string
 }
 
+export type TSettingPause = {
+    time: string, duration: number
+}
+
 export type TSetting = {
     log: {
         logLifeDays: number,
@@ -49,22 +53,30 @@ export type TSetting = {
         },
         maxStreams: number,
         queries: TSettingQuery[],
-        queryLoadErrorsKey: string,
+        queryLoadErrorKey: string,
         queryLoadDigestKey: string
     },
     fs: TSettingFs[],
     scan: TSettingScan [],
     service: {
-        hold: boolean,
+        holdManual: boolean,
         stop: {
-            sunday: boolean,
-            monday: boolean,
-            tuesday: boolean,
-            wednesday: boolean,
-            thursday: boolean,
-            friday: boolean,
-            saturday: boolean,
-            time: string
+            sunday: string,
+            monday: string,
+            tuesday: string,
+            wednesday: string,
+            thursday: string,
+            friday: string,
+            saturday: string
+        },
+        holdAuto: {
+            sunday: TSettingPause,
+            monday: TSettingPause,
+            tuesday: TSettingPause,
+            wednesday: TSettingPause,
+            thursday: TSettingPause,
+            friday: TSettingPause,
+            saturday: TSettingPause
         }
     }
 }
@@ -156,7 +168,7 @@ export class Setting {
                     key: vv.toString(m?.key),
                     query: (Array.isArray(m?.query) ? m.query : []).map(mm => { return vv.toString(mm)}).filter(f => !vv.isEmpty(f))
                 }}),
-                queryLoadErrorsKey: vv.toString(dataJson?.mssql?.queryLoadErrorsKey),
+                queryLoadErrorKey: vv.toString(dataJson?.mssql?.queryLoadErrorKey),
                 queryLoadDigestKey: vv.toString(dataJson?.mssql?.queryLoadDigestKey),
             },
             fs: (Array.isArray(dataJson?.fs) ? dataJson.fs : []).map(m => { return {
@@ -172,116 +184,73 @@ export class Setting {
                 queryLoadKey: vv.toString(m?.queryLoadKey),
             }}),
             service: {
-                hold: vv.toBool(dataJson?.service?.hold),
+                holdManual: vv.toBool(dataJson?.service?.holdManual),
                 stop: {
-                    sunday: vv.toBool(dataJson?.service?.stop?.sunday),
-                    monday: vv.toBool(dataJson?.service?.stop?.monday),
-                    tuesday: vv.toBool(dataJson?.service?.stop?.tuesday),
-                    wednesday: vv.toBool(dataJson?.service?.stop?.wednesday),
-                    thursday: vv.toBool(dataJson?.service?.stop?.thursday),
-                    friday: vv.toBool(dataJson?.service?.stop?.friday),
-                    saturday: vv.toBool(dataJson?.service?.stop?.saturday),
-                    time: vv.toString (dataJson?.service?.stop?.time),
+                    sunday: vv.toString(dataJson?.service?.stop?.sunday),
+                    monday: vv.toString(dataJson?.service?.stop?.monday),
+                    tuesday: vv.toString(dataJson?.service?.stop?.tuesday),
+                    wednesday: vv.toString(dataJson?.service?.stop?.wednesday),
+                    thursday: vv.toString(dataJson?.service?.stop?.thursday),
+                    friday: vv.toString(dataJson?.service?.stop?.friday),
+                    saturday: vv.toString(dataJson?.service?.stop?.saturday),
+                },
+                holdAuto : {
+                    sunday: {time: vv.toString(dataJson?.service?.holdAuto?.sunday?.time) , duration: vv.toIntPositive(dataJson?.service?.holdAuto?.sunday?.duration)},
+                    monday: {time: vv.toString(dataJson?.service?.holdAuto?.monday?.time) , duration: vv.toIntPositive(dataJson?.service?.holdAuto?.monday?.duration)},
+                    tuesday: {time: vv.toString(dataJson?.service?.holdAuto?.tuesday?.time) , duration: vv.toIntPositive(dataJson?.service?.holdAuto?.tuesday?.duration)},
+                    wednesday: {time: vv.toString(dataJson?.service?.holdAuto?.wednesday?.time) , duration: vv.toIntPositive(dataJson?.service?.holdAuto?.wednesday?.duration)},
+                    thursday: {time: vv.toString(dataJson?.service?.holdAuto?.thursday?.time) , duration: vv.toIntPositive(dataJson?.service?.holdAuto?.thursday?.duration)},
+                    friday: {time: vv.toString(dataJson?.service?.holdAuto?.friday?.time) , duration: vv.toIntPositive(dataJson?.service?.holdAuto?.friday?.duration)},
+                    saturday: {time: vv.toString(dataJson?.service?.holdAuto?.saturday?.time) , duration: vv.toIntPositive(dataJson?.service?.holdAuto?.saturday?.duration)},
                 }
             }
         } : d as TSetting
 
-        if (setting.log.logAllowTrace === undefined) {
-            setting.log.logAllowTrace = d.log.logAllowTrace
-            messages.push(`change and save param "log.logAllowTrace" = "${setting.log.logAllowTrace}"`)
-        }
-        if (setting.log.logLifeDays === undefined) {
-            setting.log.logLifeDays = d.log.logLifeDays
-            messages.push(`change and save param "log.logLifeDays" = "${setting.log.logLifeDays}"`)
-        }
-        if (setting.log.logFileErrorLifeDays === undefined) {
-            setting.log.logFileErrorLifeDays = d.log.logFileErrorLifeDays
-            messages.push(`change and save param "log.logFileErrorLifeDays" = "${setting.log.logFileErrorLifeDays}"`)
-        }
-        if (setting.log.logFileSuccessLifeDays === undefined) {
-            setting.log.logFileSuccessLifeDays = d.log.logFileSuccessLifeDays
-            messages.push(`change and save param "log.logFileSuccessLifeDays" = "${setting.log.logFileSuccessLifeDays}"`)
-        }
-        if (setting.mssql.connection.instance === undefined) {
-            setting.mssql.connection.instance = d.mssql.connection.instance
-            messages.push(`change and save param "mssql.connection.instance" = "${setting.mssql.connection.instance}"`)
-        }
-        if (setting.mssql.connection.login === undefined) {
-            setting.mssql.connection.login = d.mssql.connection.login
-            messages.push(`change and save param "mssql.connection.login" = "${setting.mssql.connection.login}"`)
-        }
-        if (setting.mssql.connection.password === undefined) {
-            setting.mssql.connection.password = d.mssql.connection.password
-            messages.push(`change and save param "mssql.connection.password" = "${setting.mssql.connection.password}"`)
-        }
-        if (setting.mssql.connection.database === undefined) {
-            setting.mssql.connection.database = d.mssql.connection.database
-            messages.push(`change and save param "mssql.connection.database" = "${setting.mssql.connection.database}"`)
-        }
-        if (setting.mssql.maxStreams === undefined) {
-            setting.mssql.maxStreams = d.mssql.maxStreams
-            messages.push(`change and save param "mssql.maxStreams" = "${setting.mssql.maxStreams}"`)
-        }
+        if (setting.log.logAllowTrace === undefined) setting.log.logAllowTrace = d.log.logAllowTrace
+        if (setting.log.logLifeDays === undefined) setting.log.logLifeDays = d.log.logLifeDays
+        if (setting.log.logFileErrorLifeDays === undefined) setting.log.logFileErrorLifeDays = d.log.logFileErrorLifeDays
+        if (setting.log.logFileSuccessLifeDays === undefined) setting.log.logFileSuccessLifeDays = d.log.logFileSuccessLifeDays
+        if (setting.mssql.connection.instance === undefined) setting.mssql.connection.instance = d.mssql.connection.instance
+        if (setting.mssql.connection.login === undefined) setting.mssql.connection.login = d.mssql.connection.login
+        if (setting.mssql.connection.password === undefined) setting.mssql.connection.password = d.mssql.connection.password
+        if (setting.mssql.connection.database === undefined) setting.mssql.connection.database = d.mssql.connection.database
+        if (setting.mssql.maxStreams === undefined) setting.mssql.maxStreams = d.mssql.maxStreams
         setting.mssql.queries.forEach(item => item.key = item.key === undefined ? "" : item.key)
-        if (setting.mssql.queryLoadErrorsKey === undefined) {
-            setting.mssql.queryLoadErrorsKey = d.mssql.queryLoadErrorsKey
-            messages.push(`change and save param "mssql.queryLoadErrorsKey" = "${setting.mssql.queryLoadErrorsKey}"`)
-        }
-        if (setting.mssql.queryLoadDigestKey === undefined) {
-            setting.mssql.queryLoadDigestKey = d.mssql.queryLoadDigestKey
-            messages.push(`change and save param "mssql.queryLoadDigestKey" = "${setting.mssql.queryLoadDigestKey}"`)
-        }
+        if (setting.mssql.queryLoadErrorKey === undefined) setting.mssql.queryLoadErrorKey = ""
+        if (setting.mssql.queryLoadDigestKey === undefined) setting.mssql.queryLoadDigestKey = ""
         setting.fs.forEach((item) => {
             if (item.key === undefined) item.key = ""
             if (item.path === undefined) item.path = ""
         })
-        setting.scan.forEach((item, itemIdx) => {
+        setting.scan.forEach((item) => {
             if (item.pathKey === undefined) item.pathKey = ""
             if (item.mask === undefined) item.mask = ""
             if (item.queryLoadKey === undefined) item.queryLoadKey = ""
-            if (item.modeLoad === undefined) {
-                item.modeLoad = d.scan[0].modeLoad
-                messages.push(`change and save param "mssql.scan[${itemIdx}].modeLoad" = "${item.modeLoad}"`)
-            }
             if (item.logFileErrorPathKey === undefined) item.logFileErrorPathKey = ""
             if (item.logFileSuccessPathKey === undefined) item.logFileSuccessPathKey = ""
         })
-        if (setting.service.hold === undefined) {
-            setting.service.hold = d.service.hold
-            messages.push(`change and save param "service.hold" = "${setting.service.hold}"`)
-        }
-        if (setting.service.stop.sunday === undefined) {
-            setting.service.stop.sunday = d.service.stop.sunday
-            messages.push(`change and save param "service.stop.sunday" = "${setting.service.stop.sunday}"`)
-        }
-        if (setting.service.stop.monday === undefined) {
-            setting.service.stop.monday = d.service.stop.monday
-            messages.push(`change and save param "service.stop.monday" = "${setting.service.stop.monday}"`)
-        }
-        if (setting.service.stop.tuesday === undefined) {
-            setting.service.stop.tuesday = d.service.stop.tuesday
-            messages.push(`change and save param "service.stop.tuesday" = "${setting.service.stop.tuesday}"`)
-        }
-        if (setting.service.stop.wednesday === undefined) {
-            setting.service.stop.wednesday = d.service.stop.wednesday
-            messages.push(`change and save param "service.stop.wednesday" = "${setting.service.stop.wednesday}"`)
-        }
-        if (setting.service.stop.thursday === undefined) {
-            setting.service.stop.thursday = d.service.stop.thursday
-            messages.push(`change and save param "service.stop.thursday" = "${setting.service.stop.thursday}"`)
-        }
-        if (setting.service.stop.friday === undefined) {
-            setting.service.stop.friday = d.service.stop.friday
-            messages.push(`change and save param "service.stop.friday" = "${setting.service.stop.friday}"`)
-        }
-        if (setting.service.stop.saturday === undefined) {
-            setting.service.stop.saturday = d.service.stop.saturday
-            messages.push(`change and save param "service.stop.saturday" = "${setting.service.stop.saturday}"`)
-        }
-        if (setting.service.stop.time === undefined) {
-            setting.service.stop.time = d.service.stop.time
-            messages.push(`change and save param "service.stop.time" = "${setting.service.stop.time}"`)
-        }
+        if (setting.service.holdManual === undefined) setting.service.holdManual = false
+        if (setting.service.stop.sunday === undefined) setting.service.stop.sunday = ''
+        if (setting.service.stop.monday === undefined) setting.service.stop.monday = ''
+        if (setting.service.stop.tuesday === undefined) setting.service.stop.tuesday = ''
+        if (setting.service.stop.wednesday === undefined) setting.service.stop.wednesday = ''
+        if (setting.service.stop.thursday === undefined) setting.service.stop.thursday = ''
+        if (setting.service.stop.friday === undefined) setting.service.stop.friday = ''
+        if (setting.service.stop.saturday === undefined) setting.service.stop.saturday = ''
+        if (setting.service.holdAuto.sunday.time === undefined) setting.service.holdAuto.sunday.time = ''
+        if (setting.service.holdAuto.monday.time === undefined) setting.service.holdAuto.monday.time = ''
+        if (setting.service.holdAuto.tuesday.time === undefined) setting.service.holdAuto.tuesday.time = ''
+        if (setting.service.holdAuto.wednesday.time === undefined) setting.service.holdAuto.wednesday.time = ''
+        if (setting.service.holdAuto.thursday.time === undefined) setting.service.holdAuto.thursday.time = ''
+        if (setting.service.holdAuto.friday.time === undefined) setting.service.holdAuto.friday.time = ''
+        if (setting.service.holdAuto.saturday.time === undefined) setting.service.holdAuto.saturday.time = ''
+        if (setting.service.holdAuto.sunday.duration === undefined) setting.service.holdAuto.sunday.duration = 0
+        if (setting.service.holdAuto.monday.duration === undefined) setting.service.holdAuto.monday.duration = 0
+        if (setting.service.holdAuto.tuesday.duration === undefined) setting.service.holdAuto.tuesday.duration = 0
+        if (setting.service.holdAuto.wednesday.duration === undefined) setting.service.holdAuto.wednesday.duration = 0
+        if (setting.service.holdAuto.thursday.duration === undefined) setting.service.holdAuto.thursday.duration = 0
+        if (setting.service.holdAuto.friday.duration === undefined) setting.service.holdAuto.friday.duration = 0
+        if (setting.service.holdAuto.saturday.duration === undefined) setting.service.holdAuto.saturday.duration = 0
 
         const settingJson = JSON.stringify(setting, null, 4)
         let errorSave = undefined as string
@@ -292,18 +261,6 @@ export class Setting {
                 errorSave = `${errorSave}`
             }
         }
-
-        setting.scan.forEach((item, itemIdx) => {
-            if (!setting.mssql.queries.some(f => f.key === item.queryLoadKey)) {
-                messages.push(`scan #${itemIdx} has bad queryLoadKey = "${item.queryLoadKey}"`)
-            }
-            if (item.logFileErrorPathKey && !setting.fs.some(f => f.key === item.logFileErrorPathKey)) {
-                messages.push(`scan #${itemIdx} has bad logFileErrorPathKey = "${item.logFileErrorPathKey}"`)
-            }
-            if (item.logFileSuccessPathKey && !setting.fs.some(f => f.key === item.logFileSuccessPathKey)) {
-                messages.push(`scan #${itemIdx} has bad logFileSuccessPathKey = "${item.logFileSuccessPathKey}"`)
-            }
-        })
 
         return {
             setting: setting,
@@ -339,19 +296,19 @@ export class Setting {
                     {
                         key: 'digest',
                         query: [
-                            "INSERT INTO [dbo].[YourDigestStorage] ([message],[countSuccess],[countError])",
-                            "SELECT [[message],[countSuccess],[countError] FROM #mssqlapifile_app_digest ORDER BY [id]"
+                            "INSERT INTO [dbo].[YourDigestStorage] ([countSuccess], [countError], [countQueue])",
+                            "SELECT @countSuccess, @countError, @countQueue"
                         ]
                     },
                     {
                         key: 'default',
                         query: [
                             "INSERT INTO [dbo].[YourFileStorage] ([filePath], [fileNameWithoutExt], [fileExt], [data])",
-                            "SELECT [filePath], [fileNameWithoutExt], [fileExt], [data] FROM #mssqlapifile_app_files"
+                            "SELECT @filePath, @fileNameWithoutExt, @fileExt, @data"
                         ]
                     }
                 ],
-                queryLoadErrorsKey: 'error',
+                queryLoadErrorKey: 'error',
                 queryLoadDigestKey: 'digest',
             },
             fs: [
@@ -388,16 +345,24 @@ export class Setting {
                 },
             ],
             service: {
-                hold: false,
+                holdManual: false,
                 stop: {
-                    sunday: true,
-                    monday: false,
-                    tuesday: false,
-                    wednesday: false,
-                    thursday: false,
-                    friday: false,
-                    saturday: false,
-                    time: '03:45'
+                    sunday: '03:45',
+                    monday: '',
+                    tuesday: '',
+                    wednesday: '',
+                    thursday: '',
+                    friday: '',
+                    saturday: ''
+                },
+                holdAuto: {
+                    sunday: {time: '23:35', duration: 300},
+                    monday: {time: '00:35', duration: 240},
+                    tuesday: {time: '00:35', duration: 240},
+                    wednesday: {time: '00:35', duration: 240},
+                    thursday: {time: '00:35', duration: 240},
+                    friday: {time: '00:35', duration: 240},
+                    saturday: {time: '23:35', duration: 300}
                 }
             }
         }

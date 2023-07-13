@@ -28,4 +28,8 @@ export class Timer {
         }
         this._timeout = undefined
     }
+
+    getTimeout(): number {
+        return this._timeout
+    }
 }

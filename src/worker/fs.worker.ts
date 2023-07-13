@@ -5,10 +5,10 @@ import wildcard from 'wildcard'
 import { workerData, parentPort } from 'worker_threads'
 import { TSetting, TSettingScan } from '../core/setting'
 import { Timer } from '../core/timer'
-import { TFileStat, TWEfileCreate, TWEfileForget, TWEfileLoad, TWEfileMove, TWEfileStamp, TWElogDebug, TWElogError, TWElogTrace, TWEsetting } from '../exchange'
+import { TFileStat, TWEfileCreate, TWEfileForget, TWEfileLoad, TWEfileMove, TWEfileStamp, TWEhold, TWElogDebug, TWElogError, TWElogTrace, TWEsetting } from '../exchange'
 
 export type TWorkerDataFs = {currentPath: string, setting: TSetting}
-export type TMessageImportFs = TWEsetting | TWEfileMove | TWEfileCreate | TWEfileForget
+export type TMessageImportFs = TWEsetting | TWEfileMove | TWEfileCreate | TWEfileForget | TWEhold
 export type TMessageExportFs = TWEfileLoad | TWElogTrace | TWElogDebug | TWElogError
 
 type TScanFile = {
@@ -59,7 +59,7 @@ const timerScan = new Timer(2000, async () => {
 
         const files = [] as string[]
         try {
-            files.push(...(await fs.readdir(item.path)).map(m => { return m?.toLowerCase() }))
+            files.push(...(await fs.readdir(item.path)).map(m => { return m }))
         } catch (error) {
             item.scanAfter = vv.dateAdd(new Date(), 'minute', 5)
             parentPort.postMessage({kind: 'log.error', subsystem: 'dir', text: `error scan folder "${item.path}" - ${error}`} as TMessageExportFs)
@@ -123,8 +123,12 @@ const timerScan = new Timer(2000, async () => {
 })
 
 const timerProcess = new Timer(2000, async () => {
-    let item = env.fileProcess.shift()
-    while (item) {
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+        const item = env.fileProcess.shift()
+        if (vv.isEmpty(item)) {
+            break
+        }
 
         const fullFileNamePath = item.kind === 'file.create' || item.kind === 'file.move' ? (
             env.setting?.fs.some(f => (f.key === 'success' || f.key === 'error') && f.path === item.pathDestination) ?
@@ -136,7 +140,6 @@ const timerProcess = new Timer(2000, async () => {
                 await fs.ensureDir(fullFileNamePath)
             } catch (error) {
                 parentPort.postMessage({kind: 'log.error', subsystem: 'dir', text: `can't create dir "${fullFileNamePath}" - ${error}` } as TMessageExportFs)
-                item = env.fileProcess.shift()
                 continue
             }
         }
@@ -147,7 +150,6 @@ const timerProcess = new Timer(2000, async () => {
             } catch (error) {
                 parentPort.postMessage({kind: 'log.error', subsystem: 'dir', text: `can't create file "${path.join(fullFileNamePath, item.file)}" - ${error}` } as TMessageExportFs)
             }
-            item = env.fileProcess.shift()
             continue
         }
 
@@ -165,6 +167,7 @@ const timerProcess = new Timer(2000, async () => {
                         await fs.remove(f)
                     } catch (error) {
                         parentPort.postMessage({kind: 'log.error', subsystem: 'dir', text: `error delete file "${f}" - ${error}` } as TMessageExportFs)
+                        continue
                     }
                 } else {
                     const fd = path.join(fullFileNamePath, item.file)
@@ -173,14 +176,16 @@ const timerProcess = new Timer(2000, async () => {
                     } catch (error) {
                         parentPort.postMessage({kind: 'log.error', subsystem: 'dir', text: `error move file from "${f}" to "${fd}" - ${error}` } as TMessageExportFs)
                         env.fileProcess.unshift({kind: 'file.move', path: item.path, file: item.file, pathDestination: ""})
+                        continue
                     }
                 }
+                const idx = env.scanFile.findIndex(f => item.kind === 'file.move' && f.stamp.path === item.path && f.stamp.file === item.file)
+                if (idx >= 0) {
+                    env.scanFile.splice(idx,1)
+                }
             }
-            item = env.fileProcess.shift()
             continue
         }
-
-        item = env.fileProcess.shift()
     }
     timerProcess.nextTick(1000)
 })
@@ -198,9 +203,9 @@ function buildScanPath() {
 
         const fnd = scanPath.find(f => f.path === finishPath)
         if (fnd) {
-            fnd.mask.push({scan: item, maskFile: p.base.toLowerCase()})
+            fnd.mask.push({scan: item, maskFile: p.base})
         } else {
-            scanPath.push({path: finishPath, mask: [{scan: item, maskFile: p.base.toLowerCase()}]})
+            scanPath.push({path: finishPath, mask: [{scan: item, maskFile: p.base}]})
         }
     })
     env.scanPath = scanPath

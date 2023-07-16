@@ -1,0 +1,1 @@
+in package.json, in devDependencies USE resedit VERSION 1.5.0!!!

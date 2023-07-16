@@ -17,8 +17,8 @@ fs.copyFileSync(path.join(s.dirRoot(), 'package.json'), path.join(s.dirDist(), '
 fs.emptyDirSync(s.dirCompile())
 execSync(`pkg . --out-path compile --compress GZip`, {cwd: s.dirRoot() })
 
-const exeFileWin = path.join(s.dirCompile(), 'mssqltask-app-win.exe')
-const exeFileLin = path.join(s.dirCompile(), 'mssqltask-app-linux')
+const exeFileWin = path.join(s.dirCompile(), 'mssqlapifile-app-win.exe')
+const exeFileLin = path.join(s.dirCompile(), 'mssqlapifile-app-linux')
 const icoFile = path.join(s.dirArtifacts(), 'logo.ico')
 const pjFile = path.join(s.dirDist(), 'package.json')
 const pj = vv.PackajeJsonParse(fs.readFileSync(pjFile, 'utf8'))
@@ -62,12 +62,12 @@ fs.writeFileSync(exeFileWin, Buffer.from(newBinary))
 var zip1 = new AdmZip()
 zip1.addLocalFile(exeFileWin)
 zip1.addFile("readme.txt", Buffer.from(s.readmeText('win')) )
-zip1.writeZip(path.join(s.dirCompile(), `mssqltask-app-win64-${pj.version.replace(/\./g, '-')}.zip`))
+zip1.writeZip(path.join(s.dirCompile(), `mssqlapifile-app-win64-${pj.version.replace(/\./g, '-')}.zip`))
 
 // @ts-ignore
 var zip2 = new AdmZip()
 zip2.addLocalFile(exeFileLin)
 zip2.addFile("readme.txt", Buffer.from(s.readmeText('lin')))
-zip2.writeZip(path.join(s.dirCompile(), `mssqltask-app-linux-${pj.version.replace(/\./g, '-')}.zip`))
+zip2.writeZip(path.join(s.dirCompile(), `mssqlapifile-app-linux-${pj.version.replace(/\./g, '-')}.zip`))
 
 console.log('DONE!')

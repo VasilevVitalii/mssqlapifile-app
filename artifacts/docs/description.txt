@@ -1,0 +1,6 @@
+
+#APP SETTING
+All app settings store in file mssqlapifile-app.json, which is located near executable file
+If not exists mssqlapifile-app.json, it will be created after start service
+
+Full specification see in https://github.com/VasilevVitalii/mssqlapifile-app

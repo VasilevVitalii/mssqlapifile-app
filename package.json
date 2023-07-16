@@ -1,14 +1,29 @@
 {
     "name": "mssqlapifile-app",
     "version": "0.0.1",
-    "description": "",
+    "description": "Files loader to Microsoft SQL Server",
     "main": "dist/src/index.js",
     "bin": "dist/src/index.js",
     "scripts": {
         "test": "node ./dist/test/index.js",
         "update": "npx npm-check-updates -u && npm i && npm audit fix && node ./node_modules/vv-template-nodebackend/index.js",
         "build": "tsc",
+        "compile": "node ./.auto/compile.js",
         "precommit": "node ./.auto/precommit.js"
+    },
+    "pkg": {
+        "scripts": "dist/src/*.js",
+        "assets": [
+            "dist/src/package.json",
+            "node_modules/vv-logger/dist/src/*.js",
+            "node_modules/vv-logger/dist/src/**/.js",
+            "node_modules/mssqltask/dist/src/*.js",
+            "node_modules/mssqltask/dist/src/**/.js"
+        ],
+        "targets": [
+            "win-x64",
+            "linux-x64"
+        ]
     },
     "repository": {
         "type": "git",
@@ -25,9 +40,12 @@
         "@types/node": "20.4.2",
         "@typescript-eslint/eslint-plugin": "6.0.0",
         "@typescript-eslint/parser": "6.0.0",
+        "adm-zip": "^0.5.10",
         "eslint": "8.44.0",
         "npm-check-updates": "16.10.15",
+        "pkg": "^5.8.1",
         "prettier": "3.0.0",
+        "resedit": "^2.0.0",
         "ts-node": "10.9.1",
         "typescript": "5.1.6",
         "vv-template-nodebackend": "^0.0.14"

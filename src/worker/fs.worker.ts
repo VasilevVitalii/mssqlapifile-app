@@ -1,29 +1,32 @@
 import path from 'path'
-import fs, { exists } from 'fs-extra'
+import fs from 'fs-extra'
 import * as vv from 'vv-common'
 import wildcard from 'wildcard'
 import { workerData, parentPort } from 'worker_threads'
-import { TSetting, TSettingScan } from '../core/setting'
+import { SettingScanModeLoadArr, TSetting, TSettingFs, TSettingModeLoad, TSettingQuery, TSettingScan } from '../core/setting'
 import { Timer } from '../core/timer'
 import { TFileStat, TWEfileCreate, TWEfileForget, TWEfileLoad, TWEfileMove, TWEfileStamp, TWEhold, TWElogDebug, TWElogError, TWElogTrace, TWEsetting } from '../exchange'
+import { THoldState } from '../core/hold'
 
 export type TWorkerDataFs = {currentPath: string, setting: TSetting}
 export type TMessageImportFs = TWEsetting | TWEfileMove | TWEfileCreate | TWEfileForget | TWEhold
 export type TMessageExportFs = TWEfileLoad | TWElogTrace | TWElogDebug | TWElogError
 
 type TScanFile = {
+    maskFile: string,
     stamp: TWEfileStamp,
-    // path: string,
-    // file: string,
-    // mask: TScanPathMask,
     stat: TFileStat,
     countStat: number,
-    timeSendToMssql?: Date
+    timeSendToMssql?: Date,
+    timeHoldBefore?: Date
 }
 
 type TScanPathMask = {
-    scan: TSettingScan,
-    maskFile: string
+    maskFile: string,
+    queryLoad: string,
+    logFileSuccessPath: string,
+    logFileErrorPath: string,
+    modeLoad: TSettingModeLoad
 }
 
 type TScanPath = {
@@ -33,23 +36,22 @@ type TScanPath = {
 }
 
 const env = {
+    holdState: 'holdManual' as THoldState,
     workerData: workerData as TWorkerDataFs,
-    setting: undefined as TSetting,
+    settingFs: [] as TSettingFs[],
+    settingScan: [] as TSettingScan[],
+    settingQueries: [] as TSettingQuery[],
     scanPath: [] as TScanPath[],
     scanFile: [] as TScanFile[],
-    fileProcess: [] as (TWEfileMove | TWEfileCreate)[]
+    fileProcess: [] as (TWEfileMove | TWEfileCreate | TWEfileForget)[]
 }
-
-parentPort.postMessage({kind: 'log.trace', subsystem: 'dir', text: `worker started`} as TMessageExportFs)
-
-buildScanPath()
 
 const timerScan = new Timer(2000, async () => {
     await Promise.all(env.scanPath.filter(f => !f.scanAfter || (new Date() > f.scanAfter)).map(async (item) => {
-        if (item.scanAfter) item.scanAfter = undefined
+        if (!vv.isEmpty(item.scanAfter)) item.scanAfter = undefined
 
         try {
-            fs.ensureDir(item.path)
+            await fs.ensureDir(item.path)
         } catch (error) {
             item.scanAfter = vv.dateAdd(new Date(), 'minute', 5)
             parentPort.postMessage({kind: 'log.error', subsystem: 'dir', text: `error creating folder "${item.path}" - ${error}`} as TMessageExportFs)
@@ -82,7 +84,7 @@ const timerScan = new Timer(2000, async () => {
 
             const fnd = env.scanFile.find(f => f.stamp.path === item.path && f.stamp.file === itemf)
             if (fnd) {
-                if (!fnd.timeSendToMssql) {
+                if (vv.isEmpty(fnd.timeSendToMssql)) {
                     if (fnd.stat.size === stat.size && fnd.stat.btime === stat.birthtimeMs && fnd.stat.mtime === stat.mtimeMs) {
                         fnd.countStat++
                     } else {
@@ -91,31 +93,38 @@ const timerScan = new Timer(2000, async () => {
                         fnd.stat.btime = stat.birthtimeMs
                         fnd.stat.mtime = stat.mtimeMs
                     }
-                    if (fnd.countStat > 2) {
+                    const now = new Date()
+                    if (fnd.countStat > 2 && (vv.isEmpty(fnd.timeHoldBefore) || now > fnd.timeHoldBefore)) {
+                        fnd.timeSendToMssql = now
+                        fnd.timeHoldBefore = undefined
                         parentPort.postMessage({kind: 'file.load', stat: fnd.stat, stamp: fnd.stamp } as TMessageExportFs)
-                        fnd.timeSendToMssql = new Date()
+                        parentPort.postMessage({kind: 'log.trace', subsystem: 'dir', text: `file sent to buffer queue for load to server "${path.join(item.path, itemf)}"`} as TMessageExportFs)
                     }
                 }
                 return
             }
 
-            env.scanFile.push({
-                stamp: {
-                    path: item.path,
-                    file: itemf,
-                    movePathError: env.setting.fs.find(f => f.key === mask.scan.logFileErrorPathKey)?.path,
-                    movePathSuccess: env.setting.fs.find(f => f.key === mask.scan.logFileSuccessPathKey)?.path,
-                    queryLoad: env.setting.mssql.queries.find(f => f.key === mask.scan.queryLoadKey)?.query?.join(`\n`),
-                    modeLoad: mask.scan.modeLoad
-                },
-                stat: {
-                    size: stat.size,
-                    btime: stat.birthtimeMs,
-                    mtime: stat.mtimeMs
-                },
-                countStat: 1,
-                timeSendToMssql: undefined
-            })
+            if (env.holdState === '') {
+                env.scanFile.push({
+                    maskFile: mask.maskFile,
+                    stamp: {
+                        path: item.path,
+                        file: itemf,
+                        movePathError: mask.logFileErrorPath,
+                        movePathSuccess: mask.logFileSuccessPath,
+                        queryLoad: mask.queryLoad,
+                        modeLoad: mask.modeLoad
+                    },
+                    stat: {
+                        size: stat.size,
+                        btime: stat.birthtimeMs,
+                        mtime: stat.mtimeMs
+                    },
+                    countStat: 1,
+                    timeSendToMssql: undefined
+                })
+                parentPort.postMessage({kind: 'log.trace', subsystem: 'dir', text: `find new file in scan directory "${path.join(item.path, itemf)}"`} as TMessageExportFs)
+            }
         })
     }))
 
@@ -131,7 +140,7 @@ const timerProcess = new Timer(2000, async () => {
         }
 
         const fullFileNamePath = item.kind === 'file.create' || item.kind === 'file.move' ? (
-            env.setting?.fs.some(f => (f.key === 'success' || f.key === 'error') && f.path === item.pathDestination) ?
+            env.settingFs.some(f => (f.key === 'success' || f.key === 'error') && f.path === item.pathDestination) ?
             path.join(item.pathDestination, vv.dateFormat(new Date(), 'yyyymmdd')) : item.pathDestination
         ) : undefined
 
@@ -147,6 +156,7 @@ const timerProcess = new Timer(2000, async () => {
         if (item.kind === 'file.create') {
             try {
                 await fs.writeFile(path.join(fullFileNamePath, item.file), item.text, {encoding: 'utf8', flag: 'w'})
+                parentPort.postMessage({kind: 'log.trace', subsystem: 'dir', text: `create new file "${path.join(fullFileNamePath, item.file)}"`} as TMessageExportFs)
             } catch (error) {
                 parentPort.postMessage({kind: 'log.error', subsystem: 'dir', text: `can't create file "${path.join(fullFileNamePath, item.file)}" - ${error}` } as TMessageExportFs)
             }
@@ -165,6 +175,7 @@ const timerProcess = new Timer(2000, async () => {
                 if (vv.isEmpty(item.pathDestination)) {
                     try {
                         await fs.remove(f)
+                        parentPort.postMessage({kind: 'log.trace', subsystem: 'dir', text: `delete file "${f}"`} as TMessageExportFs)
                     } catch (error) {
                         parentPort.postMessage({kind: 'log.error', subsystem: 'dir', text: `error delete file "${f}" - ${error}` } as TMessageExportFs)
                         continue
@@ -173,6 +184,7 @@ const timerProcess = new Timer(2000, async () => {
                     const fd = path.join(fullFileNamePath, item.file)
                     try {
                         await fs.move(f, fd, {overwrite: true})
+                        parentPort.postMessage({kind: 'log.trace', subsystem: 'dir', text: `move file from "${f}" to "${fd}"`} as TMessageExportFs)
                     } catch (error) {
                         parentPort.postMessage({kind: 'log.error', subsystem: 'dir', text: `error move file from "${f}" to "${fd}" - ${error}` } as TMessageExportFs)
                         env.fileProcess.unshift({kind: 'file.move', path: item.path, file: item.file, pathDestination: ""})
@@ -186,56 +198,100 @@ const timerProcess = new Timer(2000, async () => {
             }
             continue
         }
+
+        if (item.kind === 'file.forget') {
+            const idx = env.scanFile.findIndex(f => item.kind === 'file.forget' && f.stamp.path === item.path && f.stamp.file === item.file)
+            if (idx >= 0) {
+                if (vv.isEmpty(item.beforeTime)) {
+                    parentPort.postMessage({kind: 'log.trace', subsystem: 'dir', text: `file delete from scan list "${path.join(item.path, item.file)}"`} as TMessageExportFs)
+                    env.scanFile.splice(idx,1)
+                } else {
+                    parentPort.postMessage({kind: 'log.trace', subsystem: 'dir', text: `file load rescheduled to "${vv.dateFormat(item.beforeTime, 'yyyy.mm.ddThh:mi:ss')}" "${path.join(item.path, item.file)}"`} as TMessageExportFs)
+                    env.scanFile[idx].timeHoldBefore = item.beforeTime
+                    env.scanFile[idx].timeSendToMssql = undefined
+                }
+            }
+            continue
+        }
     }
     timerProcess.nextTick(1000)
 })
 
-function buildScanPath() {
-    const scanPath = [] as TScanPath[]
-    env.setting?.scan.forEach((item, itemIdx) => {
-        const fs = env.setting.fs.find(f => f.key === item.pathKey)
-        if (!fs) {
+function buildScanPath(): TScanPath[] {
+    const result = [] as TScanPath[]
+    env.settingScan.forEach((item, itemIdx) => {
+        const filePath = env.settingFs.find(f => f.key === item.pathKey)
+        if (vv.isEmpty(filePath)) {
             parentPort.postMessage({kind: 'log.error', subsystem: 'dir', text: `setting.scan #${itemIdx} has bad pathKey = "${item.pathKey}"` } as TMessageExportFs)
             return
         }
-        const p = path.parse(item.mask)
-        const finishPath = path.join(fs.path, p.dir)
+        const queryLoad = (env.settingQueries.find(f => f.key === item.queryLoadKey)?.query || []).join(`\n`)
+        if (vv.isEmpty(queryLoad)) {
+            parentPort.postMessage({kind: 'log.error', subsystem: 'dir', text: `setting.scan #${itemIdx} has bad queryLoadKey = "${item.queryLoadKey}"` } as TMessageExportFs)
+            return
+        }
+        const logFileSuccessPath = env.settingFs.find(f => f.key === item.logFileSuccessPathKey)?.path
+        if (vv.isEmpty(logFileSuccessPath) && !vv.isEmpty(item.logFileSuccessPathKey)) {
+            parentPort.postMessage({kind: 'log.error', subsystem: 'dir', text: `setting.scan #${itemIdx} has bad logFileSuccessPathKey = "${item.logFileSuccessPathKey}"` } as TMessageExportFs)
+            return
+        }
+        const logFileErrorPath = env.settingFs.find(f => f.key === item.logFileErrorPathKey)?.path
+        if (vv.isEmpty(logFileErrorPath) && !vv.isEmpty(item.logFileErrorPathKey)) {
+            parentPort.postMessage({kind: 'log.error', subsystem: 'dir', text: `setting.scan #${itemIdx} has bad logFileErrorPathKey = "${item.logFileErrorPathKey}"` } as TMessageExportFs)
+            return
+        }
+        if (vv.isEmpty(item.modeLoad) || !SettingScanModeLoadArr.includes(item.modeLoad)) {
+            parentPort.postMessage({kind: 'log.error', subsystem: 'dir', text: `setting.scan #${itemIdx} has bad modeLoad = "${item.modeLoad}"` } as TMessageExportFs)
+            return
+        }
 
-        const fnd = scanPath.find(f => f.path === finishPath)
+        const maskParse = path.parse(item.mask)
+        const scanFinishPath = path.join(filePath.path, maskParse.dir)
+
+        const scanMask = {
+            maskFile: maskParse.base,
+            modeLoad: item.modeLoad,
+            queryLoad: queryLoad,
+            logFileSuccessPath: logFileSuccessPath,
+            logFileErrorPath: logFileErrorPath
+        } as TScanPathMask
+
+        const fnd = result.find(f => f.path === scanFinishPath)
         if (fnd) {
-            fnd.mask.push({scan: item, maskFile: p.base})
+            fnd.mask.push(scanMask)
         } else {
-            scanPath.push({path: finishPath, mask: [{scan: item, maskFile: p.base}]})
+            result.push({path: scanFinishPath, mask: [scanMask]})
         }
     })
-    env.scanPath = scanPath
-
-    const successPath = env.setting?.fs.find(f => f.key === 'success').path
-    if (successPath) {
-        try {
-            fs.ensureDirSync(successPath)
-        } catch (error) {
-            parentPort.postMessage({kind: 'log.error', subsystem: 'dir', text: `create for succes files path "${successPath}" - ${error}` } as TMessageExportFs)
-        }
-    }
-    const errorPath = env.setting?.fs.find(f => f.key === 'error').path
-    if (errorPath) {
-        try {
-            fs.ensureDirSync(errorPath)
-        } catch (error) {
-            parentPort.postMessage({kind: 'log.error', subsystem: 'dir', text: `create for error files path "${errorPath}" - ${error}` } as TMessageExportFs)
-        }
-    }
+    return result
 }
 
 parentPort.on('message', (command: TMessageImportFs) => {
     const unknownCommand = command.kind as string
     if (command.kind === 'setting') {
-        if (JSON.stringify(command.setting?.scan) === JSON.stringify(env.setting?.scan)) return
-        env.setting = command.setting
-        buildScanPath()
-    } else if (command.kind === 'file.move' || command.kind === 'file.create') {
+        const settingFs = command.setting?.fs || []
+        const settingScan = command.setting?.scan || []
+        const settingQueries = command.setting?.mssql?.queries || []
+
+        if (JSON.stringify(settingFs) === JSON.stringify(env.settingFs) && JSON.stringify(settingScan) === JSON.stringify(env.settingScan) && JSON.stringify(settingQueries) === JSON.stringify(env.settingQueries)) return
+
+        parentPort.postMessage({kind: 'log.debug', subsystem: 'dir', text: `get new version setting`} as TMessageExportFs)
+
+        env.settingFs = settingFs
+        env.settingScan = settingScan
+        env.settingQueries = settingQueries
+        env.scanPath = buildScanPath()
+        env.scanFile = env.scanFile.filter(f => !vv.isEmpty(f.timeSendToMssql))
+
+    } else if (command.kind === 'file.move' || command.kind === 'file.create' || command.kind === 'file.forget') {
         env.fileProcess.push(command)
+    } else if (command.kind === 'hold') {
+        if (command.state === '') {
+            parentPort.postMessage({kind: 'log.debug', subsystem: 'dir', text: `worker started`} as TMessageExportFs)
+        } else if (command.state !== 'stop')  {
+            parentPort.postMessage({kind: 'log.debug', subsystem: 'dir', text: `worker on pause (setting ... ${command.state})`} as TMessageExportFs)
+        }
+        env.holdState = command.state
     } else {
         parentPort.postMessage({kind: 'log.error', subsystem: 'dir', text: `internal error - unknown command kind "${unknownCommand}"`} as TMessageExportFs)
     }

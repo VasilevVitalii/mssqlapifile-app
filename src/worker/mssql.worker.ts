@@ -7,12 +7,14 @@ import { XMLBuilder } from "fast-xml-parser"
 import renameObjectKey from 'deep-rename-keys'
 import { Readable } from 'stream'
 import { workerData, parentPort } from 'worker_threads'
-import { TSetting } from '../core/setting'
+import { TSettingMssql } from '../core/setting'
 import { TWEfileCreate, TWEfileForget, TWEfileLoad, TWEfileLoadResult, TWEfileMove, TWEhold, TWElogDebug, TWElogDigestLoad, TWElogError, TWElogErrorLoad, TWElogTrace, TWEsetting } from '../exchange'
 import { Timer } from '../core/timer'
 import { dateAdd } from 'vv-common'
+import { THoldState } from '../core/hold'
+import { TMssqlWorkerIdx } from '../app'
 
-export type TWorkerDataSql = {currentPath: string, setting: TSetting, idx: number}
+export type TWorkerDataSql = {currentPath: string, idx: TMssqlWorkerIdx}
 export type TMessageImportSql = TWEfileLoad | TWElogErrorLoad | TWElogDigestLoad | TWEsetting | TWEhold
 export type TMessageExportSql = TWElogTrace | TWElogDebug | TWElogError | TWEfileCreate | TWEfileMove | TWEfileForget | TWEfileLoadResult
 
@@ -21,19 +23,20 @@ type TLoadEntity = {
 }
 
 const env = {
+    holdState: 'holdManual' as THoldState,
     workerData: workerData as TWorkerDataSql,
-    setting: undefined as TSetting,
+    settingMssql: undefined as TSettingMssql,
     list: [] as TLoadEntity[],
     driver: undefined as mssqldriver.IApp,
-    timePauseAfter: undefined as Date
+    timePauseAfter: undefined as Date,
+    queryDigest: undefined as string,
+    queryError: undefined as string
 }
 
 const xmlBuilder = new XMLBuilder({format: true, arrayNodeName: 'sheets'})
 
 xlsx.set_fs(fs)
 xlsx.stream.set_readable(Readable)
-
-parentPort.postMessage({kind: 'log.trace', subsystem: 'sql', text: `worker #${env.workerData.idx} started`} as TMessageExportSql)
 
 const QUERY_DATA = [
     "DECLARE @filePath NVARCHAR(MAX); SET @filePath = '{filePath}'",
@@ -66,6 +69,12 @@ const timerProcess = new Timer(5000, async () => {
         }
 
         if (item.command.kind === 'file.load') {
+            if (env.holdState !== '' && env.holdState !== 'stopPrepare') {
+                sendResultFile(item.command.stamp.path, item.command.stamp.file, 'success')
+                parentPort.postMessage({kind: 'file.forget', path: item.command.stamp.path, file: item.command.stamp.file} as TMessageExportSql)
+                continue
+            }
+
             const fullFileName = path.join(item.command.stamp.path, item.command.stamp.file)
 
             try {
@@ -107,17 +116,17 @@ const timerProcess = new Timer(5000, async () => {
                     const data = await fs.readFile(fullFileName,'utf8')
                     query = query
                     .replaceAll('{datatype}', 'NVARCHAR(MAX)')
-                    .replaceAll('{data}', data?.replace(`'`, `''`))
+                    .replaceAll('{data}', data?.replaceAll(`'`, `''`))
                 } else if (item.command.stamp.modeLoad === 'bodyAsBase64') {
                     const data = await fs.readFile(fullFileName,'base64')
                     query = query
                     .replaceAll('{datatype}', 'NVARCHAR(MAX)')
-                    .replaceAll('{data}', data?.replace(`'`, `''`))
+                    .replaceAll('{data}', data?.replaceAll(`'`, `''`))
                 } else if (item.command.stamp.modeLoad === 'bodyAsBinary') {
                     const data = (await fs.readFile(fullFileName)).toString('hex')
                     query = query
                     .replaceAll('{datatype}', 'VARBINARY(MAX)')
-                    .replaceAll('{data}', data?.replace(`'`, `''`))
+                    .replaceAll('{data}', data?.replaceAll(`'`, `''`))
                 } else if (item.command.stamp.modeLoad === 'xlsx2json' || item.command.stamp.modeLoad === 'xlsx2xml') {
                     const workbook = xlsx.readFile(fullFileName)
                     const sheetNames = workbook.SheetNames
@@ -149,12 +158,22 @@ const timerProcess = new Timer(5000, async () => {
                         })
                         return newKey
                     })
-                    //fs.writeFileSync(path.join(item.command.stamp.path, '1.json'), JSON.stringify(workbookJsonRenamed, null, 4), 'utf-8')
-                    //fs.writeFileSync(path.join(item.command.stamp.path, '1.xml'), xmlBuilder.build(workbookJsonRenamed), 'utf-8')
                     const data = item.command.stamp.modeLoad === 'xlsx2xml' ?  xmlBuilder.build(workbookJsonRenamed) : JSON.stringify(workbookJsonRenamed, null, 4)
                     query = query
                         .replaceAll('{datatype}', 'NVARCHAR(MAX)')
-                        .replaceAll('{data}', data?.replace(`'`, `''`))
+                        .replaceAll('{data}', data?.replaceAll(`'`, `''`))
+                } else if (item.command.stamp.modeLoad === 'xml2xml') {
+                    let data = (await fs.readFile(fullFileName)).toString('utf8')
+                    const fndHead1 = data.indexOf('<?xml')
+                    if (fndHead1 >= 0) {
+                        const fndHead2 = data.indexOf('?>', fndHead1)
+                        if (fndHead2 >= 0) {
+                            data = data.substring(0, fndHead1) + data.substring(fndHead2 + 2)
+                        }
+                    }
+                    query = query
+                        .replaceAll('{datatype}', 'XML')
+                        .replaceAll('{data}', data?.replaceAll(`'`, `''`))
                 } else {
                     throw new Error(`in setting unknown scan.modeLoad = "${item.command.stamp.modeLoad}"`)
                 }
@@ -166,24 +185,32 @@ const timerProcess = new Timer(5000, async () => {
 
             const itemCallback = {...item}
 
+            parentPort.postMessage({kind: 'log.trace', subsystem: 'sql', text: `[${env.workerData.idx}] begin load file "${path.join(item.command.stamp.path, item.command.stamp.file)}"`} as TMessageExportSql)
             query = `${query}\n${item.command.stamp.queryLoad}`
             env.driver.exec(query, {receiveMessage: 'none', receiveTables: 'cumulative'}, callback => {
                 if (callback.kind !== 'finish') return
                 const command = itemCallback.command as TWEfileLoad
+                parentPort.postMessage({kind: 'log.trace', subsystem: 'sql', text: `[${env.workerData.idx}] end load file "${path.join(command.stamp.path, command.stamp.file)}"`} as TMessageExportSql)
                 const err = typeSqlError(callback.finish.error)
                 if (err === 'none') {
+                    const lastRow = callback.finish.tables.at(-1)?.rows.at(-1)
+                    const holdsec = vv.isEmpty(lastRow) ? undefined : vv.toIntPositive(lastRow['holdsec'])
+                    const beforeTime = holdsec !== undefined && holdsec > 0 ? vv.dateAdd(new Date(), 'second', holdsec) : undefined
                     sendResultFile(command.stamp.path, command.stamp.file, 'success')
-                    parentPort.postMessage({kind: 'file.move', path: command.stamp.path, file: command.stamp.file, pathDestination: command.stamp.movePathSuccess} as TMessageExportSql)
+                    if (beforeTime === undefined) {
+                        parentPort.postMessage({kind: 'file.move', path: command.stamp.path, file: command.stamp.file, pathDestination: command.stamp.movePathSuccess} as TMessageExportSql)
+                    } else {
+                        parentPort.postMessage({kind: 'file.forget', path: command.stamp.path, file: command.stamp.file, beforeTime: beforeTime} as TMessageExportSql)
+                    }
                 } else if (err === 'connect') {
                     onErrorConnect(itemCallback, callback.finish.error)
                 } else if (err === 'exec') {
                     sendResultFile(command.stamp.path, command.stamp.file, 'error')
-                    onErrorFile(command, [`/*`,callback.finish.error.message,`*/`,'\n',query].join(`\n`))
+                    onErrorFile(command, `error load file "${path.join(command.stamp.path, command.stamp.file)}" - "${callback.finish.error.message}"`, query)
                 }
             })
         } else if (item.command.kind === 'log.load.digest') {
-            const queryDigest = env.setting.mssql.queries.find(f => f.key === env.setting.mssql.queryLoadDigestKey).query
-            if (vv.isEmpty(queryDigest)) {
+            if (vv.isEmpty(env.queryDigest)) {
                 continue
             }
 
@@ -191,7 +218,7 @@ const timerProcess = new Timer(5000, async () => {
                 .replaceAll('{countSuccess}', vv.toString(item.command.digest.countSuccess))
                 .replaceAll('{countError}', vv.toString(item.command.digest.countError))
                 .replaceAll('{countQueue}', vv.toString(item.command.digest.countQueue))
-            + `\n` + queryDigest.join('\n')
+            + `\n` + env.queryDigest
 
             const itemCallback = {...item}
 
@@ -206,15 +233,13 @@ const timerProcess = new Timer(5000, async () => {
             })
 
         } else if (item.command.kind === 'log.load.error') {
-
-            const queryError = env.setting.mssql.queries.find(f => f.key === env.setting.mssql.queryLoadErrorKey).query
-            if (vv.isEmpty(queryError)) {
+            if (vv.isEmpty(env.queryError)) {
                 continue
             }
 
             const query = QUERY_ERROR.join(`\n`) + `\n` +
-                item.command.list.map(m => { return `SELECT '[${m.subsystem}] ${m.text.replace(`'`, `''`)}'`}).join(`UNION ALL\n`) + `\n` +
-                queryError.join(`\n`)
+                item.command.list.map(m => { return `SELECT '[${m.subsystem}] ${m.text.replaceAll(`'`, `''`)}'`}).join(`UNION ALL\n`) + `\n` +
+                env.queryError
 
             const itemCallback = {...item}
 
@@ -224,12 +249,12 @@ const timerProcess = new Timer(5000, async () => {
                 if (err === 'connect') {
                     onErrorConnect(itemCallback, callback.finish.error)
                 } else if (err === 'exec') {
-                    parentPort.postMessage({kind: 'log.error', subsystem: 'sql', text: `error in load error - ${callback.finish.error.message}`} as TMessageExportSql)
+                    parentPort.postMessage({kind: 'log.error', subsystem: 'sql', text: `error in load error - "${callback.finish.error.message}", query:\n${query}`} as TMessageExportSql)
                 }
             })
         }
     }
-    timerProcess.nextTick(1000)
+    timerProcess.nextTick(100)
 })
 
 function getLoadFile(): TLoadEntity {
@@ -255,10 +280,16 @@ function typeSqlError(error: any): 'none' | 'connect' | 'exec' {
     return 'exec'
 }
 
-function onErrorFile(item: TWEfileLoad, error: string) {
+function onErrorFile(item: TWEfileLoad, error: string, query?: string) {
     parentPort.postMessage({kind: 'log.error', subsystem: 'sql', text: error} as TMessageExportSql)
     if (item.stamp.movePathError) {
-        parentPort.postMessage({kind: 'file.create', text: error, file: `${item.stamp.file}.mssqlapifile-ticket.txt`, pathDestination: item.stamp.movePathError} as TMessageExportSql)
+        const text = [
+            '/*',
+            error,
+            '*/',
+            vv.isEmpty(query) ? '' : query
+        ].join('\n')
+        parentPort.postMessage({kind: 'file.create', text: text, file: `${item.stamp.file}.mssqlapifile-ticket.txt`, pathDestination: item.stamp.movePathError} as TMessageExportSql)
     }
     parentPort.postMessage({kind: 'file.move', path: item.stamp.path, file: item.stamp.file, pathDestination: item.stamp.movePathError} as TMessageExportSql)
 }
@@ -276,21 +307,46 @@ function sendResultFile(path: string, file: string, result: 'error' | 'success')
 parentPort.on('message', (command: TMessageImportSql) => {
     const unknownCommand = command.kind as string
     if (command.kind === 'setting') {
-        env.setting = command.setting
+        if (vv.isEmpty(command.setting?.mssql) || JSON.stringify(command.setting.mssql) === JSON.stringify(env.settingMssql)) return
+
+        parentPort.postMessage({kind: 'log.debug', subsystem: 'sql', text: `[${env.workerData.idx}] get new version setting`} as TMessageExportSql)
+        env.settingMssql = command.setting?.mssql
+
         env.driver = mssqldriver.Create({
             authentication: 'sqlserver',
-            instance: env.setting.mssql.connection.instance,
-            login: env.setting.mssql.connection.login,
-            password: env.setting.mssql.connection.password,
+            instance: env.settingMssql.connection.instance,
+            login: env.settingMssql.connection.login,
+            password: env.settingMssql.connection.password,
             additional: {
                 appName: 'mssqlapifile-app',
-                database: env.setting.mssql.connection.database
+                database: env.settingMssql.connection.database
             }
         })
+
+        const queryDigest = (env.settingMssql.queries.find(f => f.key === env.settingMssql.queryLoadDigestKey)?.query || []).join(`\n`)
+        if (vv.isEmpty(queryDigest)) {
+            parentPort.postMessage({kind: 'log.debug', subsystem: 'sql', text: `[${env.workerData.idx}] query for save digest not found`} as TMessageExportSql)
+        } else {
+            env.queryDigest = queryDigest
+        }
+        const queryError = (env.settingMssql.queries.find(f => f.key === env.settingMssql.queryLoadErrorKey)?.query || []).join(`\n`)
+        if (vv.isEmpty(queryError)) {
+            parentPort.postMessage({kind: 'log.debug', subsystem: 'sql', text: `[${env.workerData.idx}] query for save error not found`} as TMessageExportSql)
+        } else {
+            env.queryError = queryError
+        }
+
     } else if (command.kind === 'file.load' || command.kind === 'log.load.digest' || command.kind === 'log.load.error') {
         env.list.push({
             command: command
         })
+    } else if (command.kind === 'hold') {
+        if (command.state === '') {
+            parentPort.postMessage({kind: 'log.debug', subsystem: 'sql', text: `[${env.workerData.idx}] worker started`} as TMessageExportSql)
+        } else if (command.state !== 'stop')  {
+            parentPort.postMessage({kind: 'log.debug', subsystem: 'sql', text: `[${env.workerData.idx}] worker on pause (setting ... ${command.state})`} as TMessageExportSql)
+        }
+        env.holdState = command.state
     } else {
         parentPort.postMessage({kind: 'log.error', subsystem: 'sql', text: `internal error - unknown command kind "${unknownCommand}"`} as TMessageExportSql)
     }

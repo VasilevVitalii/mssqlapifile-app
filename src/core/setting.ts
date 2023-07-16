@@ -10,14 +10,16 @@ export type TSettingModeLoad =
     'bodyAsBinary' |
     'fullFileName' |
     'xlsx2json' |
-    'xlsx2xml'
+    'xlsx2xml' |
+    'xml2xml'
 export const SettingScanModeLoadArr = [
     'bodyAsUtf8',
     'bodyAsBase64',
     'bodyAsBinary',
     'fullFileName',
     'xlsx2json',
-    'xlsx2xml'
+    'xlsx2xml',
+    'xml2xml'
 ] as TSettingModeLoad[]
 
 export type TSettingScan = {
@@ -37,6 +39,19 @@ export type TSettingPause = {
     time: string, duration: number
 }
 
+export type TSettingMssql = {
+    connection: {
+        instance: string,
+        login: string,
+        password: string,
+        database: string,
+    },
+    maxStreams: number,
+    queries: TSettingQuery[],
+    queryLoadErrorKey: string,
+    queryLoadDigestKey: string
+}
+
 export type TSetting = {
     log: {
         logLifeDays: number,
@@ -44,20 +59,9 @@ export type TSetting = {
         logFileSuccessLifeDays: number,
         logFileErrorLifeDays: number
     },
-    mssql: {
-        connection: {
-            instance: string,
-            login: string,
-            password: string,
-            database: string,
-        },
-        maxStreams: number,
-        queries: TSettingQuery[],
-        queryLoadErrorKey: string,
-        queryLoadDigestKey: string
-    },
+    mssql: TSettingMssql,
     fs: TSettingFs[],
-    scan: TSettingScan [],
+    scan: TSettingScan[],
     service: {
         holdManual: boolean,
         stop: {
@@ -83,9 +87,8 @@ export type TSetting = {
 
 export class Setting {
     private _appPath = undefined as string
-    private _settingJson = undefined as string
     private _taskReadSetting = undefined as Timer
-    private _eventOnRead = undefined as (setting: TSetting, messages: string[], error: string) => void
+    private _eventOnRead = undefined as (setting: TSetting, messages: string[], error: string, fullFileName: string) => void
 
     constructor(appPath: string) {
         this._appPath = appPath
@@ -93,20 +96,17 @@ export class Setting {
         this._taskReadSetting = new Timer(2000, async () => {
             if (this._eventOnRead) {
                 const result = await this._read()
-                const change = JSON.stringify(result.setting) !== this._settingJson
-                if (change || result.messages?.length > 0 || result.error) {
-                    this._eventOnRead(result.setting, result.messages, result.error)
-                }
+                this._eventOnRead(result.setting, result.messages, result.error, result.fullFileName)
             }
             this._taskReadSetting.nextTick(5000)
         })
     }
 
-    eventOnRead(proc: (setting: TSetting, messages: string[], error: string) => void) {
+    eventOnRead(proc: (setting: TSetting, messages: string[], error: string, fullFileName: string) => void) {
         this._eventOnRead = proc
     }
 
-    private async _read(): Promise<{setting: TSetting; messages: string[]; error: string}> {
+    private async _read(): Promise<{setting: TSetting; messages: string[]; error: string, fullFileName: string}> {
         const fullFileName = path.join(this._appPath, 'mssqlapifile-app.json')
         const d = this._default()
 
@@ -117,7 +117,8 @@ export class Setting {
             return {
                 setting: d,
                 messages: [],
-                error: `use default settings, because error check exists file "${fullFileName}" - ${error}`
+                error: `use default settings, because error check exists file "${fullFileName}" - ${error}`,
+                fullFileName: fullFileName
             }
         }
 
@@ -132,7 +133,8 @@ export class Setting {
                 return {
                     setting: d,
                     messages: [],
-                    error: `use default settings, because error read file "${fullFileName}" - ${error}`
+                    error: `use default settings, because error read file "${fullFileName}" - ${error}`,
+                    fullFileName: fullFileName
                 }
             }
 
@@ -142,7 +144,8 @@ export class Setting {
                 return {
                     setting: d,
                     messages: [],
-                    error: `use default settings, because error parse to json file "${fullFileName}" - ${error}`
+                    error: `use default settings, because error parse to json file "${fullFileName}" - ${error}`,
+                    fullFileName: fullFileName
                 }
             }
         } else {
@@ -228,6 +231,7 @@ export class Setting {
             if (item.queryLoadKey === undefined) item.queryLoadKey = ""
             if (item.logFileErrorPathKey === undefined) item.logFileErrorPathKey = ""
             if (item.logFileSuccessPathKey === undefined) item.logFileSuccessPathKey = ""
+            if (item.modeLoad === undefined) item.modeLoad = "" as any
         })
         if (setting.service.holdManual === undefined) setting.service.holdManual = false
         if (setting.service.stop.sunday === undefined) setting.service.stop.sunday = ''
@@ -265,7 +269,8 @@ export class Setting {
         return {
             setting: setting,
             messages: messages,
-            error: errorSave
+            error: errorSave,
+            fullFileName: fullFileName
         }
     }
 

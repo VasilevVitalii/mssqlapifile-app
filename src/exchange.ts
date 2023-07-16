@@ -1,3 +1,4 @@
+import { THoldState } from "./core/hold"
 import { TSetting, TSettingModeLoad } from "./core/setting"
 
 export type TFileStat = {
@@ -26,8 +27,8 @@ export type TWEfileLoad = {kind: 'file.load', stamp: TWEfileStamp, stat: TFileSt
 export type TWEfileMove = {kind: 'file.move', path: string, file: string, pathDestination: string}
 export type TWEfileLoadResult = {kind: 'file.result', path: string, file: string, result: 'error' | 'success'}
 export type TWEfileCreate = {kind: 'file.create', text: string, file: string, pathDestination: string}
-export type TWEfileForget = {kind: 'file.forget', path: string, file: string}
-export type TWEhold = {kind: 'hold', allow: boolean}
+export type TWEfileForget = {kind: 'file.forget', path: string, file: string, beforeTime?: Date}
+export type TWEhold = {kind: 'hold', state: THoldState}
 
 
 

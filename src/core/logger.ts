@@ -73,6 +73,11 @@ export class Logger {
     logDigest(countSuccess: number, countError: number, countQueue: number) {
         this._list.push({key: numerator.getKey(), isInFile: false, isInSql: false, type: 'digest', digestCountSuccess: countSuccess, digestCountError: countError, digestCountQueue: countQueue})
     }
+    stop() {
+        setTimeout(() => {
+            this._loggerManager.finish(() => {})
+        }, 1000 * 5)
+    }
     restart(LogLifeDays: number, LogAllowTrace: boolean) {
         if (LogLifeDays === this._logLifeDays && LogAllowTrace === this._logAllowTrace) return
         this._allowInFile = false

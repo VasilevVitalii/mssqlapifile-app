@@ -85,129 +85,129 @@ const timerProcess = new Timer(5000, async () => {
                 continue
             }
 
-            let stat = undefined as fs.Stats
-            try {
-                stat = await fs.stat(fullFileName)
-            } catch (error) {
-                sendResultFile(item.command.stamp.path, item.command.stamp.file, 'error')
-                onErrorFile(item.command, `error check file "${fullFileName}" - ${error}`)
-                continue
-            }
+            const itemCallback = {... item} as TLoadEntity
+            const command = {...itemCallback.command} as TWEfileLoad
 
-            if (item.command.stat.size !== stat.size || item.command.stat.btime !== stat.birthtimeMs || item.command.stat.mtime !== stat.mtimeMs) {
-                sendResultFile(item.command.stamp.path, item.command.stamp.file, 'success')
-                parentPort.postMessage({kind: 'file.forget', path: item.command.stamp.path, file: item.command.stamp.file} as TMessageExportSql)
-                continue
-            }
+            fs.stat(fullFileName, undefined, async (error, stat) => {
+                if (!vv.isEmpty(error)) {
+                    sendResultFile(command.stamp.path, command.stamp.file, 'error')
+                    onErrorFile(command, `error check file "${fullFileName}" - ${error}`)
+                    return
+                }
 
-            const p = path.parse(item.command.stamp.file)
+                if (command.stat.size !== stat.size || command.stat.btime !== stat.birthtimeMs || command.stat.mtime !== stat.mtimeMs) {
+                    sendResultFile(command.stamp.path, command.stamp.file, 'success')
+                    parentPort.postMessage({kind: 'file.forget', path: command.stamp.path, file: command.stamp.file} as TMessageExportSql)
+                    return
+                }
 
-            let query = QUERY_DATA.join(`\n`)
-                .replaceAll('{filePath}', item.command.stamp.path.replaceAll(`'`, `''`))
+                const p = path.parse(command.stamp.file)
+
+                let query = QUERY_DATA.join(`\n`)
+                .replaceAll('{filePath}', command.stamp.path.replaceAll(`'`, `''`))
                 .replaceAll('{fileNameWithoutExt}', p.name.replaceAll(`'`, `''`))
                 .replaceAll('{fileExt}', p.ext.replaceAll(`'`, `''`))
 
-            try {
-                if (item.command.stamp.modeLoad === 'fullFileName') {
-                    query = query
-                        .replaceAll('{datatype}', 'NVARCHAR(1)')
-                        .replaceAll('{data}', '')
-                } else if (item.command.stamp.modeLoad === 'bodyAsUtf8') {
-                    const data = await fs.readFile(fullFileName,'utf8')
-                    query = query
-                    .replaceAll('{datatype}', 'NVARCHAR(MAX)')
-                    .replaceAll('{data}', data?.replaceAll(`'`, `''`))
-                } else if (item.command.stamp.modeLoad === 'bodyAsBase64') {
-                    const data = await fs.readFile(fullFileName,'base64')
-                    query = query
-                    .replaceAll('{datatype}', 'NVARCHAR(MAX)')
-                    .replaceAll('{data}', data?.replaceAll(`'`, `''`))
-                } else if (item.command.stamp.modeLoad === 'bodyAsBinary') {
-                    const data = (await fs.readFile(fullFileName)).toString('hex')
-                    query = query
-                    .replaceAll('{datatype}', 'VARBINARY(MAX)')
-                    .replaceAll('{data}', data?.replaceAll(`'`, `''`))
-                } else if (item.command.stamp.modeLoad === 'xlsx2json' || item.command.stamp.modeLoad === 'xlsx2xml') {
-                    const workbook = xlsx.readFile(fullFileName)
-                    const sheetNames = workbook.SheetNames
-                    const workbookJsonStr = sheetNames.length > 0 ?
-                        JSON.stringify(sheetNames.map(m => { return xlsx.utils.sheet_to_json(workbook.Sheets[m], {raw: false, dateNF: "YYYYMMDD", defval: "", rawNumbers: true, skipHidden: true}) }), null, 4) : ''
-                    const workbookJsonRaw = JSON.parse(workbookJsonStr)
-                    let workbookJson = {}
-                    if (Array.isArray(workbookJsonRaw)) {
-                        workbookJsonRaw.forEach((item, itemIdx) => {
-                            if (Array.isArray(item)) {
-                                const sheet = {item: [...item]}
-                                workbookJson[`sheet${itemIdx}`] = sheet
-                            } else {
-                                workbookJson[`object${itemIdx}`] = item
-                            }
-                        })
-                    } else {
-                        workbookJson = workbookJsonRaw
-                    }
-
-                    const workbookJsonRenamed = renameObjectKey(workbookJson, key => {
-                        const maybeInt = vv.toInt(key)?.toString()
-                        if (maybeInt === key) {
-                            return `item${key}`
-                        }
-                        let newKey = key
-                        BOUNDARY.forEach(item => {
-                            newKey = newKey.replace(item, '_')
-                        })
-                        return newKey
-                    })
-                    const data = item.command.stamp.modeLoad === 'xlsx2xml' ?  xmlBuilder.build(workbookJsonRenamed) : JSON.stringify(workbookJsonRenamed, null, 4)
-                    query = query
+                try {
+                    if (command.stamp.modeLoad === 'fullFileName') {
+                        query = query
+                            .replaceAll('{datatype}', 'NVARCHAR(1)')
+                            .replaceAll('{data}', '')
+                    } else if (command.stamp.modeLoad === 'bodyAsUtf8') {
+                        const data = await fs.readFile(fullFileName,'utf8')
+                        query = query
                         .replaceAll('{datatype}', 'NVARCHAR(MAX)')
                         .replaceAll('{data}', data?.replaceAll(`'`, `''`))
-                } else if (item.command.stamp.modeLoad === 'xml2xml') {
-                    let data = (await fs.readFile(fullFileName)).toString('utf8')
-                    const fndHead1 = data.indexOf('<?xml')
-                    if (fndHead1 >= 0) {
-                        const fndHead2 = data.indexOf('?>', fndHead1)
-                        if (fndHead2 >= 0) {
-                            data = data.substring(0, fndHead1) + data.substring(fndHead2 + 2)
-                        }
-                    }
-                    query = query
-                        .replaceAll('{datatype}', 'XML')
+                    } else if (command.stamp.modeLoad === 'bodyAsBase64') {
+                        const data = await fs.readFile(fullFileName,'base64')
+                        query = query
+                        .replaceAll('{datatype}', 'NVARCHAR(MAX)')
                         .replaceAll('{data}', data?.replaceAll(`'`, `''`))
-                } else {
-                    throw new Error(`in setting unknown scan.modeLoad = "${item.command.stamp.modeLoad}"`)
-                }
-            } catch (error) {
-                sendResultFile(item.command.stamp.path, item.command.stamp.file, 'error')
-                onErrorFile(item.command, `error load file "${path.join(fullFileName)}" - ${error}`)
-                continue
-            }
+                    } else if (command.stamp.modeLoad === 'bodyAsBinary') {
+                        const data = (await fs.readFile(fullFileName)).toString('hex')
+                        query = query
+                        .replaceAll('{datatype}', 'VARBINARY(MAX)')
+                        .replaceAll('{data}', data?.replaceAll(`'`, `''`))
+                    } else if (command.stamp.modeLoad === 'xlsx2json' || command.stamp.modeLoad === 'xlsx2xml') {
+                        const workbook = xlsx.readFile(fullFileName)
+                        const sheetNames = workbook.SheetNames
+                        const workbookJsonStr = sheetNames.length > 0 ?
+                            JSON.stringify(sheetNames.map(m => { return xlsx.utils.sheet_to_json(workbook.Sheets[m], {raw: false, dateNF: "YYYYMMDD", defval: "", rawNumbers: true, skipHidden: true}) }), null, 4) : ''
+                        const workbookJsonRaw = JSON.parse(workbookJsonStr)
+                        let workbookJson = {}
+                        if (Array.isArray(workbookJsonRaw)) {
+                            workbookJsonRaw.forEach((item, itemIdx) => {
+                                if (Array.isArray(item)) {
+                                    const sheet = {item: [...item]}
+                                    workbookJson[`sheet${itemIdx}`] = sheet
+                                } else {
+                                    workbookJson[`object${itemIdx}`] = item
+                                }
+                            })
+                        } else {
+                            workbookJson = workbookJsonRaw
+                        }
 
-            const itemCallback = {...item}
-
-            parentPort.postMessage({kind: 'log.trace', subsystem: 'sql', text: `[${env.workerData.idx}] begin load file "${path.join(item.command.stamp.path, item.command.stamp.file)}"`} as TMessageExportSql)
-            query = `${query}\n${item.command.stamp.queryLoad}`
-            env.driver.exec(query, {receiveMessage: 'none', receiveTables: 'cumulative'}, callback => {
-                if (callback.kind !== 'finish') return
-                const command = itemCallback.command as TWEfileLoad
-                parentPort.postMessage({kind: 'log.trace', subsystem: 'sql', text: `[${env.workerData.idx}] end load file "${path.join(command.stamp.path, command.stamp.file)}"`} as TMessageExportSql)
-                const err = typeSqlError(callback.finish.error)
-                if (err === 'none') {
-                    const lastRow = callback.finish.tables.at(-1)?.rows.at(-1)
-                    const holdsec = vv.isEmpty(lastRow) ? undefined : vv.toIntPositive(lastRow['holdsec'])
-                    const beforeTime = holdsec !== undefined && holdsec > 0 ? vv.dateAdd(new Date(), 'second', holdsec) : undefined
-                    sendResultFile(command.stamp.path, command.stamp.file, 'success')
-                    if (beforeTime === undefined) {
-                        parentPort.postMessage({kind: 'file.move', path: command.stamp.path, file: command.stamp.file, pathDestination: command.stamp.movePathSuccess} as TMessageExportSql)
+                        const workbookJsonRenamed = renameObjectKey(workbookJson, key => {
+                            const maybeInt = vv.toInt(key)?.toString()
+                            if (maybeInt === key) {
+                                return `item${key}`
+                            }
+                            let newKey = key
+                            BOUNDARY.forEach(item => {
+                                newKey = newKey.replace(item, '_')
+                            })
+                            return newKey
+                        })
+                        const data = command.stamp.modeLoad === 'xlsx2xml' ?  xmlBuilder.build(workbookJsonRenamed) : JSON.stringify(workbookJsonRenamed, null, 4)
+                        query = query
+                            .replaceAll('{datatype}', 'NVARCHAR(MAX)')
+                            .replaceAll('{data}', data?.replaceAll(`'`, `''`))
+                    } else if (command.stamp.modeLoad === 'xml2xml') {
+                        let data = (await fs.readFile(fullFileName)).toString('utf8')
+                        const fndHead1 = data.indexOf('<?xml')
+                        if (fndHead1 >= 0) {
+                            const fndHead2 = data.indexOf('?>', fndHead1)
+                            if (fndHead2 >= 0) {
+                                data = data.substring(0, fndHead1) + data.substring(fndHead2 + 2)
+                            }
+                        }
+                        query = query
+                            .replaceAll('{datatype}', 'XML')
+                            .replaceAll('{data}', data?.replaceAll(`'`, `''`))
                     } else {
-                        parentPort.postMessage({kind: 'file.forget', path: command.stamp.path, file: command.stamp.file, beforeTime: beforeTime} as TMessageExportSql)
+                        throw new Error(`in setting unknown scan.modeLoad = "${command.stamp.modeLoad}"`)
                     }
-                } else if (err === 'connect') {
-                    onErrorConnect(itemCallback, callback.finish.error)
-                } else if (err === 'exec') {
+                } catch (error) {
                     sendResultFile(command.stamp.path, command.stamp.file, 'error')
-                    onErrorFile(command, `error load file "${path.join(command.stamp.path, command.stamp.file)}" - "${callback.finish.error.message}"`, query)
+                    onErrorFile(command, `error load file "${path.join(fullFileName)}" - ${error}`)
+                    return
                 }
+
+                parentPort.postMessage({kind: 'log.trace', subsystem: 'sql', text: `[${env.workerData.idx}] begin load file "${path.join(command.stamp.path, command.stamp.file)}"`} as TMessageExportSql)
+
+                query = `${query}\n${command.stamp.queryLoad}`
+                env.driver.exec(query, {receiveMessage: 'none', receiveTables: 'cumulative'}, callback => {
+                    if (callback.kind !== 'finish') return
+                    parentPort.postMessage({kind: 'log.trace', subsystem: 'sql', text: `[${env.workerData.idx}] end load file "${path.join(command.stamp.path, command.stamp.file)}"`} as TMessageExportSql)
+                    const err = typeSqlError(callback.finish.error)
+                    if (err === 'none') {
+                        const lastRow = callback.finish.tables.at(-1)?.rows.at(-1)
+                        const holdsec = vv.isEmpty(lastRow) ? undefined : vv.toIntPositive(lastRow['holdsec'])
+                        const beforeTime = holdsec !== undefined && holdsec > 0 ? vv.dateAdd(new Date(), 'second', holdsec) : undefined
+                        sendResultFile(command.stamp.path, command.stamp.file, 'success')
+                        if (beforeTime === undefined) {
+                            parentPort.postMessage({kind: 'file.move', path: command.stamp.path, file: command.stamp.file, pathDestination: command.stamp.movePathSuccess} as TMessageExportSql)
+                        } else {
+                            parentPort.postMessage({kind: 'file.forget', path: command.stamp.path, file: command.stamp.file, beforeTime: beforeTime} as TMessageExportSql)
+                        }
+                    } else if (err === 'connect') {
+                        onErrorConnect(itemCallback, callback.finish.error)
+                    } else if (err === 'exec') {
+                        sendResultFile(command.stamp.path, command.stamp.file, 'error')
+                        onErrorFile(command, `error load file "${path.join(command.stamp.path, command.stamp.file)}" - "${callback.finish.error.message}"`, query)
+                    }
+                })
             })
         } else if (item.command.kind === 'log.load.digest') {
             if (vv.isEmpty(env.queryDigest)) {

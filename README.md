@@ -6,13 +6,13 @@
 
 # mssqlapifile-app
 
-Service for Windows and Linux. Load files to MS SQL Server from specific path
+Service for Windows and Linux. Load files to MS SQL Server from a specific path
 
 ## 1. how it works
 
 1. it is assumed that the app will run as a service in continuous mode
-2. app constantly scan the directories specified in the settings
-3. if a new file appears in the directory, it will be uploaded to the Microsoft SQL Server
+2. service constantly scans the directories specified in the settings
+3. if a new file appears in the directory, it will be uploaded to Microsoft SQL Server
 
 ## 2. getting started
 
@@ -23,34 +23,34 @@ Unzip and run, change created setting file mssqlapifile-app.json. After changing
 
 1. **"mssql.connection.*".** MS SQL Server connection settings. Supported only "SQL Server Authentication" and not supported "Windows Authentication"
 2. **"mssql.connection.maxStreams".** Maximum number of parallel connections to MS SQL Server
-3. **"mssql.queries.*".**  Сontains all queries with which service will upload file data (and not only) to the MS SQL Server.
+3. **"mssql.queries.*".**  Сontains all queries with which service will upload data from file (and not only) to the MS SQL Server.
 Parameter "key" must be unique within all items in this param array. Details will be specified below in the [queries section](#queries)
 4. **"mssql.queryLoadErrorKey".** Refer to **mssql.queries** for loading errors to MS SQL Server. Details will be specified below in the "errors" section
 5. **"mssql.queryLoadDigestKey".** Refer to **mssql.queries** for periodic loading statistics about the service work to MS SQL Server. Details will be specified below in the [queries section](#queries)
-6. **"fs.*".** Сontains all directories which service uses in its work - scan new file for load it to MS SQL Server, move loaded file to another directory. Parameter "key" must be unique within all items in this param array.
-7. **"scan".** Array of rules by which files are searched for uploading to the MS SQL Server. Each item consist of
-	- **"pathKey".** Directory for scan. Refer to **fs**. Сan be specified with subdirectories.
-	- **"mask".** File mask. Can be specified with subdirectories, but mask symbols can only contain file name. Good masks: *"\*.txt"*, *"/subfolder/\*.txt"*. Bad masks: *"/subfolder\*/\*.txt"*, *"/subfolder/\*/\*.txt"*.
+6. **"fs.*".** Сontains all directories which service uses in its work - scan new file to load it to MS SQL Server, move loaded file to another directory. Parameter "key" must be unique within all items in this param array
+7. **"scan".** Array of rules by which files are searched for uploading to the MS SQL Server. Each item consists of
+	- **"pathKey".** Directory to scan. Refer to **fs**. Сan be specified subdirectories
+	- **"mask".** File mask. Can be specified subdirectories, but mask symbols can only contain the file name. Good masks: *"\*.txt"*, *"/subfolder/\*.txt"*. Bad masks: *"/subfolder\*/\*.txt"*, *"/subfolder/\*/\*.txt"*
 	- **"modeLoad".** File read option. Details will be specified below in the [queries section](#queries)
 	- **"logFileErrorPathKey".** Directory for moving files that failed to load to MS SQL Server
 	- **"logFileSuccessPathKey".** Directory for moving files that were successfully uploaded to the server
-	- **"queryLoadKey".** Query for load file data to MS SQL Server. Refer to **mssql.queries**. Details will be specified below in the [queries section](#queries)
-8. **"service.holdManual".** Various options for pausing the service or stopping it.
+	- **"queryLoadKey".** Query to load file data to MS SQL Server. Refer to **mssql.queries**. Details will be specified below in the [queries section](#queries)
+8. **"service.holdManual".** Various options for pausing the service or stopping it
 	- **"holdManual".**  If this parameter is set to "success", the service will pause. Files will not be loaded to the MS SQL SERver at this time
 	- **"stop".** Setting the service stop time (examples: "03:45", "23:15"). If additional third-party mechanisms are used to autostart a stopped service, the service will be restarted
-	- **"holdAuto".** Setting the time period during which the service will not loaded data to MS SQL Server (**duration** in minutes). If, for example, "saturday": {"time": "23:30", "duration": 120}, service will not work from saturday 23:30 to sunday 01:30
-9. **"log".** Service writes logs to "log" folder, which is located in the same directory.
+	- **"holdAuto".** Setting the time period during which the service will not load data to MS SQL Server (**duration** in minutes). If, for example, "saturday": {"time": "23:30", "duration": 120}, service will not work from saturday 23:30 to sunday 01:30
+9. **"log".** Service writes logs to "log" folder, which is located in the same directory
 	- **"logAllowTrace".** Enable or disable "trace" level. Other levels ("debug" and "error") are always enabled
 	- **"logLifeDays".** How many days to keep files in "log" folder
-	- **"logFileErrorLifeDays", "logFileSuccessLifeDays".** This settings are not used
+	- **"logFileErrorLifeDays", "logFileSuccessLifeDays".** These settings are not used
 
 ## <a id="queries">4. Queries</a>
 
-Service load to MS SQL Server data files, errors and digest. Digest - service statistics (how many files were loaded successfully, loadin how many files caused an error) generated every 10 minutes. Can be used to check that the service is running.
+Service load to MS SQL Server data files, errors and digest. Digest - service statistics (how many files were loaded successfully, loading how many files caused an error) generated every 10 minutes. Can be used to check that the service is running.
 
 1. **Load errors.** every minute, based on the accumulated errors
 	- in setting in section **mssql.queries** find query whose key is equal to param **mssql.queryLoadErrorKey**
-	- if query is not found, load errors to MS SQL Server will not happen
+	- if the query is not found, load errors to MS SQL Server will not happen
 	- first part of the query is generated. Founded query is added to it, example:
 	```sql
 	-- first path
@@ -66,7 +66,7 @@ Service load to MS SQL Server data files, errors and digest. Digest - service st
 	- final script is run on the MS SQL Server
 2. **Load digest.** every 10 minute
 	- in setting in section **mssql.queries** find query whose key is equal to param **mssql.queryLoadDigestKey**
-	- if query is not found, load digest to MS SQL Server will not happen
+	- if the query is not found, load digest to MS SQL Server will not happen
 	- first part of the query is generated. Founded query is added to it, example:
 	```sql
 	-- first path
@@ -142,14 +142,14 @@ Service load to MS SQL Server data files, errors and digest. Digest - service st
 	</tr>
 	<tr>
 		<td>"xlsx2json", "xlsx2xml"</td>
-		<td>read file with xlsx data by converter, convert data to json or xml</td>
+		<td>file with XLSX data read by the converter, data converted to JSON or XML</td>
 		<td>
 			like in scan.modeLoad "bodyAsUtf8" and "bodyAsBase64"
 		</td>
 	</tr>
 	<tr>
 		<td>"xml2xml"</td>
-		<td>read file with xml data by converter, convert data xml</td>
+		<td>file with XML data read by the converter, data converted to XML</td>
 		<td>
 			-- first path<br>
 			DECLARE @filePath NVARCHAR(MAX); SET @filePath = '/home/vitalii/importfile'<br>

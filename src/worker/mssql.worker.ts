@@ -39,11 +39,11 @@ xlsx.set_fs(fs)
 xlsx.stream.set_readable(Readable)
 
 const QUERY_DATA = [
-    "DECLARE @filePath NVARCHAR(MAX); SET @filePath = '{filePath}'",
-    "DECLARE @fileNameWithoutExt NVARCHAR(MAX); SET @fileNameWithoutExt = '{fileNameWithoutExt}'",
-    "DECLARE @fileExt NVARCHAR(MAX); SET @fileExt = '{fileExt}'",
+    "DECLARE @filePath NVARCHAR(MAX); SET @filePath = N'{filePath}'",
+    "DECLARE @fileNameWithoutExt NVARCHAR(MAX); SET @fileNameWithoutExt = N'{fileNameWithoutExt}'",
+    "DECLARE @fileExt NVARCHAR(MAX); SET @fileExt = N'{fileExt}'",
     "DECLARE @data {datatype}",
-    "SET @data = '{data}'"
+    "SET @data = {N}'{data}'"
 ]
 
 const QUERY_DIGEST = [
@@ -112,27 +112,37 @@ const timerProcess = new Timer(5000, async () => {
                     if (command.stamp.modeLoad === 'fullFileName') {
                         query = query
                             .replaceAll('{datatype}', 'NVARCHAR(1)')
-                            .replaceAll('{data}', '')
+                            .replaceAll('{data}', '').replaceAll('{N}','')
                     } else if (command.stamp.modeLoad === 'bodyAsUtf8') {
                         const data = await fs.readFile(fullFileName,'utf8')
                         query = query
                         .replaceAll('{datatype}', 'NVARCHAR(MAX)')
-                        .replaceAll('{data}', data?.replaceAll(`'`, `''`))
+                        .replaceAll('{data}', data?.replaceAll(`'`, `''`)).replaceAll('{N}','N')
                     } else if (command.stamp.modeLoad === 'bodyAsBase64') {
                         const data = await fs.readFile(fullFileName,'base64')
                         query = query
                         .replaceAll('{datatype}', 'NVARCHAR(MAX)')
-                        .replaceAll('{data}', data?.replaceAll(`'`, `''`))
+                        .replaceAll('{data}', data?.replaceAll(`'`, `''`)).replaceAll('{N}','N')
                     } else if (command.stamp.modeLoad === 'bodyAsBinary') {
                         const data = (await fs.readFile(fullFileName)).toString('hex')
                         query = query
                         .replaceAll('{datatype}', 'VARBINARY(MAX)')
-                        .replaceAll('{data}', data?.replaceAll(`'`, `''`))
+                        .replaceAll('{data}', data?.replaceAll(`'`, `''`)).replaceAll('{N}','')
                     } else if (command.stamp.modeLoad === 'xlsx2json' || command.stamp.modeLoad === 'xlsx2xml') {
-                        const workbook = xlsx.readFile(fullFileName)
+                        const workbook = xlsx.readFile(fullFileName, {dense: true})
                         const sheetNames = workbook.SheetNames
                         const workbookJsonStr = sheetNames.length > 0 ?
-                            JSON.stringify(sheetNames.map(m => { return xlsx.utils.sheet_to_json(workbook.Sheets[m], {raw: false, dateNF: "YYYYMMDD", defval: "", rawNumbers: true, skipHidden: true}) }), null, 4) : ''
+                            JSON.stringify(sheetNames.map(m => {
+                                return xlsx.utils.sheet_to_json(workbook.Sheets[m], {
+                                    header: "A",
+                                    raw: false,
+                                    dateNF: "YYYYMMDD",
+                                    defval: "",
+                                    rawNumbers: true,
+                                    skipHidden: true,
+                                    blankrows: false,
+                                })
+                            }), null, 4) : ''
                         const workbookJsonRaw = JSON.parse(workbookJsonStr)
                         let workbookJson = {}
                         if (Array.isArray(workbookJsonRaw)) {
@@ -159,10 +169,13 @@ const timerProcess = new Timer(5000, async () => {
                             })
                             return newKey
                         })
-                        const data = command.stamp.modeLoad === 'xlsx2xml' ?  xmlBuilder.build(workbookJsonRenamed) : JSON.stringify(workbookJsonRenamed, null, 4)
+
+                        const data = command.stamp.modeLoad === 'xlsx2xml' ?
+                            xmlBuilder.build(workbookJsonRenamed) :
+                            JSON.stringify(workbookJsonRenamed, null, 4)
                         query = query
                             .replaceAll('{datatype}', 'NVARCHAR(MAX)')
-                            .replaceAll('{data}', data?.replaceAll(`'`, `''`))
+                            .replaceAll('{data}', data?.replaceAll(`'`, `''`)).replaceAll('{N}','N')
                     } else if (command.stamp.modeLoad === 'xml2xml') {
                         let data = (await fs.readFile(fullFileName)).toString('utf8')
                         const fndHead1 = data.indexOf('<?xml')

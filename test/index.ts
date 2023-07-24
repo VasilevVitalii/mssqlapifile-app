@@ -4,7 +4,7 @@ import fs from 'fs-extra'
 const currentPath = path.join(__dirname, '..', '..', 'test')
 
 type TCommand = 'fill' | 'start' | 'fill&start'
-const command = 'fill&start' as TCommand
+const command = 'start' as TCommand
 
 if (command === 'fill' || command === 'fill&start') {
     fs.emptyDirSync(path.join(currentPath, 'scan'))

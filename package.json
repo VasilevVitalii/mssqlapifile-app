@@ -1,6 +1,6 @@
 {
     "name": "mssqlapifile-app",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "description": "Files loader to Microsoft SQL Server",
     "main": "dist/src/index.js",
     "bin": "dist/src/index.js",

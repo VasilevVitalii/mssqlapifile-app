@@ -1,12 +1,13 @@
+/* eslint-disable @typescript-eslint/naming-convention */
 import { workerData, parentPort } from 'worker_threads'
 import { Setting } from '../core/setting'
 import { Logger } from '../core/logger'
-import { TWEhold, TWElogDebug, TWElogDigest, TWElogDigestLoad, TWElogError, TWElogErrorLoad, TWElogTrace, TWEsetting } from '../exchange'
+import { TWEhold, TWElogDebug, TWElogDigest, TWElogDigestLoad, TWElogError, TWElogErrorLoad, TWElogTrace, TWEsetting, TWEstop } from '../exchange'
 import { THoldState } from '../core/hold'
 
 export type TWorkerDataApp = {currentPath: string}
 export type TMessageImportApp = TWElogError | TWElogTrace | TWElogDebug | TWElogDigest | TWEhold
-export type TMessageExportApp = TWEsetting | TWElogErrorLoad | TWElogDigestLoad
+export type TMessageExportApp = TWEsetting | TWElogErrorLoad | TWElogDigestLoad | TWEstop
 
 const env = {
     holdState: 'holdManual' as THoldState,
@@ -15,9 +16,13 @@ const env = {
     logger: new Logger((workerData as TWorkerDataApp).currentPath),
 }
 
-env.setting.eventOnRead((setting, messages, error) => {
+env.setting.eventOnRead((setting, messages, error, fullFileName, existsFile) => {
     if (error) {
         env.logger.logError('app', error)
+    }
+    if (existsFile === false) {
+        parentPort.postMessage({kind: 'stop'} as TMessageExportApp)
+        return
     }
     if (messages?.length > 0) {
         messages.forEach(item => env.logger.logDebug('app', item))

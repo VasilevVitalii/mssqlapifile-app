@@ -88,7 +88,7 @@ export type TSetting = {
 export class Setting {
     private _appPath = undefined as string
     private _taskReadSetting = undefined as Timer
-    private _eventOnRead = undefined as (setting: TSetting, messages: string[], error: string, fullFileName: string) => void
+    private _eventOnRead = undefined as (setting: TSetting, messages: string[], error: string, fullFileName: string, existsFile: boolean) => void
 
     constructor(appPath: string) {
         this._appPath = appPath
@@ -96,17 +96,17 @@ export class Setting {
         this._taskReadSetting = new Timer(2000, async () => {
             if (this._eventOnRead) {
                 const result = await this._read()
-                this._eventOnRead(result.setting, result.messages, result.error, result.fullFileName)
+                this._eventOnRead(result.setting, result.messages, result.error, result.fullFileName, result.existsFile)
             }
             this._taskReadSetting.nextTick(5000)
         })
     }
 
-    eventOnRead(proc: (setting: TSetting, messages: string[], error: string, fullFileName: string) => void) {
+    eventOnRead(proc: (setting: TSetting, messages: string[], error: string, fullFileName: string, existsFile: boolean) => void) {
         this._eventOnRead = proc
     }
 
-    private async _read(): Promise<{setting: TSetting; messages: string[]; error: string, fullFileName: string}> {
+    private async _read(): Promise<{setting: TSetting; messages: string[]; error: string, fullFileName: string, existsFile: boolean}> {
         const fullFileName = path.join(this._appPath, 'mssqlapifile-app.json')
         const d = this._default()
 
@@ -118,7 +118,8 @@ export class Setting {
                 setting: d,
                 messages: [],
                 error: `use default settings, because error check exists file "${fullFileName}" - ${error}`,
-                fullFileName: fullFileName
+                fullFileName: fullFileName,
+                existsFile: true
             }
         }
 
@@ -134,7 +135,8 @@ export class Setting {
                     setting: d,
                     messages: [],
                     error: `use default settings, because error read file "${fullFileName}" - ${error}`,
-                    fullFileName: fullFileName
+                    fullFileName: fullFileName,
+                    existsFile
                 }
             }
 
@@ -145,7 +147,8 @@ export class Setting {
                     setting: d,
                     messages: [],
                     error: `use default settings, because error parse to json file "${fullFileName}" - ${error}`,
-                    fullFileName: fullFileName
+                    fullFileName: fullFileName,
+                    existsFile
                 }
             }
         } else {
@@ -270,7 +273,8 @@ export class Setting {
             setting: setting,
             messages: messages,
             error: errorSave,
-            fullFileName: fullFileName
+            fullFileName: fullFileName,
+            existsFile
         }
     }
 

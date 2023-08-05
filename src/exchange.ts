@@ -29,6 +29,7 @@ export type TWEfileLoadResult = {kind: 'file.result', path: string, file: string
 export type TWEfileCreate = {kind: 'file.create', text: string, file: string, pathDestination: string}
 export type TWEfileForget = {kind: 'file.forget', path: string, file: string, beforeTime?: Date}
 export type TWEhold = {kind: 'hold', state: THoldState}
+export type TWEstop = {kind: 'stop'}
 
 
 

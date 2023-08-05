@@ -64,7 +64,9 @@ function startAppWorker(currentPath: string) {
     sendToWorkerApp({kind: 'log.debug', subsystem: 'app', text: 'app started'})
     env.wApp.on('message', (message: TMessageExportApp) => {
         const unknownMessage = message.kind as string
-        if (message.kind === 'setting') {
+        if (message.kind === 'stop') {
+            process.exit()
+        } else if (message.kind === 'setting') {
             env.setting = message.setting
             sendToWorkerMssql('all', {kind: 'setting', setting: env.setting})
             sendToWorkerFs({kind: 'setting', setting: env.setting})

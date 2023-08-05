@@ -187,7 +187,7 @@ const timerProcess = new Timer(5000, async () => {
                         }
                         query = query
                             .replaceAll('{datatype}', 'XML')
-                            .replaceAll('{data}', data?.replaceAll(`'`, `''`))
+                            .replaceAll('{data}', data?.replaceAll(`'`, `''`)).replaceAll('{N}','N')
                     } else {
                         throw new Error(`in setting unknown scan.modeLoad = "${command.stamp.modeLoad}"`)
                     }
